@@ -1,0 +1,14 @@
+{
+  "sqltools.connections": [
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5466,
+      "driver": "PostgreSQL",
+      "name": "cosmo-shop",
+      "database": "market_cosmo",
+      "username": "admin"
+    }
+  ]
+}
