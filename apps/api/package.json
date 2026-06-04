@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "predev": "sh -c 'fuser -k \"${PORT:-3006}\"/tcp 2>/dev/null || true'",
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main",
@@ -26,6 +27,7 @@
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
     "eslint": "^9.39.1",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "@repo/database": "workspace:*"
   }
 }

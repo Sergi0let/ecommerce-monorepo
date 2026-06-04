@@ -1,0 +1,7 @@
+{
+  "extends": "@repo/typescript-config/node.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["prisma.config.ts", "src/**/*.ts", "generated/**/*.ts"]
+}
