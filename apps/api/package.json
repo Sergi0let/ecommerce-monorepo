@@ -6,8 +6,9 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "predev": "sh -c 'fuser -k \"${PORT:-3006}\"/tcp 2>/dev/null || true'",
+    "predev": "sh -c 'fuser -k \"${PORT:-3006}\"/tcp 2>/dev/null || true' && pnpm --filter @repo/database build",
     "dev": "nest start --watch",
+    "prebuild": "pnpm --filter @repo/database build",
     "build": "nest build",
     "start": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\"",
@@ -18,7 +19,8 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "@repo/database": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
@@ -27,7 +29,6 @@
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
     "eslint": "^9.39.1",
-    "typescript": "5.9.2",
-    "@repo/database": "workspace:*"
+    "typescript": "5.9.2"
   }
 }
