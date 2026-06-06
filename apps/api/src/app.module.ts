@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
-
 import { LoggerModule } from 'nestjs-pino';
+import { BrandModule } from './brand/brand.module';
 
 @Module({
   imports: [
@@ -18,6 +18,7 @@ import { LoggerModule } from 'nestjs-pino';
         },
       },
     }),
+    BrandModule,
   ],
   controllers: [AppController],
   providers: [AppService],
