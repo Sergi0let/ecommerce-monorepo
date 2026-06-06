@@ -7,7 +7,7 @@ import {
 
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 const activePriceFilter = {
   isValidFrom: { lte: new Date() },
