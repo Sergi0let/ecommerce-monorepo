@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -12,24 +10,319 @@ datasource db {
   provider = "postgresql"
 }
 
-model Product {
-  id               Int       @id @default(autoincrement())
-  name             String
-  shortDescription String
-  description      String
-  price            Int
-  sizes            String[]
-  colors           String[]
-  images           Json
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  category         Category? @relation(fields: [categorySlug], references: [slug])
-  categorySlug     String
+model Brand {
+  id   String @id @default(uuid())
+  name String
+  slug String @unique
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @updatedAt
+
+  products   Product[]
+  categories Category[]
+
+  logo            String?
+  description     String?
+  websiteUrl      String?
+  metaTitle       String?
+  metaDescription String?
+  isActive        Boolean @default(true)
+
+  @@index([slug])
+}
+
+model Price {
+  id        String  @id @default(uuid())
+  productId String
+  variantId String?
+  currency  String  @default("UAH")
+
+  amountCents    Int // Ціна в копійках
+  costCents      Int? // Собівартість в копійках
+  compareAtCents Int? // Стара ціна для знижки
+
+  isValidFrom DateTime?
+  isValidTo   DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @updatedAt
+
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([isValidFrom, isValidTo])
+  @@index([productId, isValidFrom, isValidTo])
 }
 
 model Category {
-  id       Int       @id @default(autoincrement())
+  id       String  @id @default(uuid())
   name     String
-  slug     String    @unique
+  slug     String  @unique
+  parentId String?
+  brandId  String // Додано зв'язок з брендом
+
+  metaTitle       String?
+  metaDescription String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  brand    Brand      @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
   products Product[]
+
+  @@unique([brandId, slug]) // Унікальний slug в межах бренду
+  @@index([slug])
+  @@index([parentId])
+  @@index([brandId])
+}
+
+model Product {
+  id          String  @id @default(uuid())
+  name        String
+  slug        String  @unique
+  description String?
+
+  volumeMl Int?
+  weightG  Int?
+
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+
+  metaTitle       String?
+  metaDescription String?
+
+  ratingAvg   Float?
+  ratingCount Int    @default(0)
+
+  brandId    String
+  categoryId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand    Brand     @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  attributes         ProductAttributeValue[]
+  reviews            Review[]
+  productIngredients ProductIngredient[]
+  images             ProductImage[]
+  variants           ProductVariant[]
+  prices             Price[]
+  inventory          Inventory[]
+
+  @@index([slug])
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@index([ratingAvg])
+}
+
+model ProductVariant {
+  id String @id @default(uuid())
+
+  sku  String  @unique
+  name String?
+
+  volumeMl Int?
+  weightG  Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  productId String
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  prices    Price[]
+  inventory Inventory[]
+
+  @@index([productId])
+  @@index([sku])
+}
+
+model ProductImage {
+  id String @id @default(uuid())
+
+  url String
+  alt String?
+
+  sortOrder Int     @default(0)
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([sortOrder])
+  @@index([isPrimary])
+}
+
+model Warehouse {
+  id        String  @id @default(uuid())
+  name      String
+  code      String  @unique
+  address   String?
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventory Inventory[]
+
+  @@index([isDefault])
+  @@index([code])
+  @@index([isActive])
+}
+
+model Inventory {
+  id          String  @id @default(uuid())
+  productId   String
+  variantId   String?
+  warehouseId String
+
+  quantity Int @default(0) // Доступний залишок
+  reserved Int @default(0) // Зарезервовано в кошиках
+  incoming Int @default(0) // Очікується поставка
+
+  location    String? // Місце на складі (стеллаж, ряд)
+  batchNumber String? // Номер партії
+  expiresAt   DateTime? // Термін придатності
+
+  updatedAt     DateTime  @updatedAt
+  lastCountedAt DateTime? // Дата останньої інвентаризації
+
+  product   Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouse Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, variantId, warehouseId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([warehouseId])
+  @@index([expiresAt])
+  @@index([quantity])
+}
+
+model Attribute {
+  id String @id @default(uuid())
+
+  code String        @unique
+  name String
+  type AttributeType
+
+  createdAt DateTime @default(now())
+
+  values AttributeValue[]
+
+  @@index([code])
+}
+
+enum AttributeType {
+  SELECT
+  MULTI
+  NUMBER
+  BOOLEAN
+}
+
+model AttributeValue {
+  id    String  @id @default(uuid())
+  value String
+  label String?
+
+  createdAt DateTime @default(now())
+
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  products ProductAttributeValue[]
+
+  @@unique([attributeId, value])
+  @@index([attributeId])
+  @@index([value])
+}
+
+model ProductAttributeValue {
+  productId        String
+  attributeValueId String
+
+  product        Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeValue AttributeValue @relation(fields: [attributeValueId], references: [id], onDelete: Cascade)
+
+  @@id([productId, attributeValueId])
+  @@index([productId])
+  @@index([attributeValueId])
+}
+
+model Review {
+  id String @id @default(uuid())
+
+  rating  Int
+  comment String?
+
+  verifiedPurchase Boolean @default(false)
+  helpfulCount     Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([rating])
+  @@index([createdAt])
+  @@index([verifiedPurchase])
+}
+
+model Ingredient {
+  id String @id @default(uuid())
+
+  name        String  @unique
+  slug        String  @unique
+  inciName    String? // INCI міжнародна назва
+  description String?
+
+  comedogenicRating Int?    @default(0) // 0-5 (комедогенність)
+  safetyScore       Float? // 0-10 (безпека)
+  isAllergen        Boolean @default(false)
+  isPreservative    Boolean @default(false)
+  isFragrance       Boolean @default(false)
+
+  benefits     String[]
+  restrictions String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products ProductIngredient[]
+
+  @@index([slug])
+  @@index([isAllergen])
+  @@index([comedogenicRating])
+}
+
+model ProductIngredient {
+  productId    String
+  ingredientId String
+
+  concentration Decimal? @db.Decimal(5, 2) // Концентрація у відсотках
+  isActive      Boolean  @default(true)
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@id([productId, ingredientId])
+  @@index([productId])
+  @@index([ingredientId])
 }

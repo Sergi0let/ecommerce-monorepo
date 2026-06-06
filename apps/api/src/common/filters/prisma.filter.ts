@@ -24,6 +24,11 @@ export class PrismaExeptionFilter implements ExceptionFilter {
       statusCode = 400;
     }
 
+    if (exception.code === 'P2003') {
+      message = 'Operation failed due to related records';
+      statusCode = 409;
+    }
+
     response.status(statusCode).json({
       statusCode,
       message,
