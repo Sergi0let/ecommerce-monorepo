@@ -1,49 +1,41 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 export class BrandResponseDto {
-  /**
-   * ID brand
-   * @example '123e4567-e89b-12d3-a456-426614174000'
-   */
+  @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
   id!: string;
 
-  /**
-   * Name of brand
-   * @example 'Instytutum'
-   */
+  @ApiProperty({ example: 'Instytutum' })
   name!: string;
 
-  /**
-   * Slug of brand
-   * @example 'instytutum'
-   */
+  @ApiProperty({ example: 'instytutum' })
   slug!: string;
 
-  /**
-   * Description of brand
-   * @example 'Instytutum is a brand that makes products for the skin'
-   */
+  @ApiPropertyOptional({ example: 'Professional skincare brand' })
   description?: string;
 
-  /**
-   * URL of brand logo
-   * @example 'https://instytutum.com/logo.png'
-   */
+  @ApiPropertyOptional({ example: 'https://instytutum.com/logo.png' })
   logo?: string;
 
-  /**
-   * Is brand active
-   * @example true
-   */
+  @ApiPropertyOptional({ example: 'https://instytutum.com' })
+  websiteUrl?: string;
+
+  @ApiPropertyOptional({ example: 'Instytutum | Official Store' })
+  metaTitle?: string;
+
+  @ApiPropertyOptional({ example: 'Shop Instytutum cosmetics online' })
+  metaDescription?: string;
+
+  @ApiProperty({ example: true })
   isActive!: boolean;
 
-  /**
-   * Creation date of brand
-   * @example '2021-01-01T00:00:00.000Z'
-   */
+  @ApiProperty({ example: '2021-01-01T00:00:00.000Z' })
   createdAt!: Date;
 
-  /**
-   * Update date of brand
-   * @example '2021-01-01T00:00:00.000Z'
-   */
+  @ApiPropertyOptional({ example: '2021-01-01T00:00:00.000Z' })
   updatedAt?: Date;
+}
+
+export class BrandWithCountsDto extends BrandResponseDto {
+  @ApiProperty({ example: { products: 10, categories: 4 } })
+  _count!: { products: number; categories: number };
 }

@@ -11,7 +11,7 @@ import { Transform } from 'class-transformer';
 
 export class CreateBrandDto {
   /**
-   * Назва бренду
+   * Name of the brand
    * @example 'Instytutum'
    */
   @IsString()
@@ -20,7 +20,7 @@ export class CreateBrandDto {
   name!: string;
 
   /**
-   * Slug бренду
+   * Slug of the brand
    * @example 'instytutum'
    */
   @IsString()
@@ -29,7 +29,7 @@ export class CreateBrandDto {
   slug!: string;
 
   /**
-   * Опис бренду
+   * Description of the brand
    * @example 'Instytutum is a brand that makes products for the skin'
    */
   @IsString()
@@ -38,17 +38,16 @@ export class CreateBrandDto {
   description?: string;
 
   /**
-   * URL логотипу бренду
+   * URL of the brand logo
    * @example 'https://instytutum.com/logo.png'
    */
   @IsString()
   @IsOptional()
   @IsUrl()
-  @IsOptional()
   logo?: string;
 
   /**
-   * URL веб-сайту бренду
+   * URL of the brand website
    * @example 'https://instytutum.com'
    */
   @IsString()
@@ -57,7 +56,7 @@ export class CreateBrandDto {
   websiteUrl?: string;
 
   /**
-   * Meta title бренду
+   * Meta title of the brand
    * @example 'Instytutum - Brand'
    */
   @IsString()
@@ -66,7 +65,7 @@ export class CreateBrandDto {
   metaTitle?: string;
 
   /**
-   * Meta description бренду
+   * Meta description of the brand
    * @example 'Instytutum is a brand that makes products for the skin'
    */
   @IsString()
@@ -75,7 +74,7 @@ export class CreateBrandDto {
   metaDescription?: string;
 
   /**
-   * Чи активний бренд
+   * Whether the brand is active
    * @example true
    */
   @IsOptional()
