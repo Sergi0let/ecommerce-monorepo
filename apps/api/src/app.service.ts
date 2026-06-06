@@ -11,12 +11,6 @@ export class AppService {
   }
 
   async getAllCategories(): Promise<Category[]> {
-    return this.prisma.client.category.findMany({
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-      },
-    });
+    return this.prisma.client.category.findMany({});
   }
 }
