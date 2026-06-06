@@ -10,12 +10,15 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio --port 5555",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset",
     "check-types": "pnpm db:generate && tsc --noEmit"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
     "prisma": "^7.8.0",
+    "tsx": "^4.19.2",
     "typescript": "5.9.2"
   },
   "dependencies": {

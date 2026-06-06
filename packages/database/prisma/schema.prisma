@@ -18,7 +18,8 @@ model Brand {
   createdAt DateTime  @default(now())
   updatedAt DateTime? @updatedAt
 
-  products Product[]
+  products   Product[]
+  categories Category[]
 
   logo            String?
   description     String?
@@ -60,6 +61,7 @@ model Category {
   name     String
   slug     String  @unique
   parentId String?
+  brandId  String // Додано зв'язок з брендом
 
   metaTitle       String?
   metaDescription String?
@@ -69,11 +71,14 @@ model Category {
 
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
+  brand    Brand      @relation(fields: [brandId], references: [id], onDelete: Restrict)
 
   products Product[]
 
+  @@unique([brandId, slug]) // Унікальний slug в межах бренду
   @@index([slug])
   @@index([parentId])
+  @@index([brandId])
 }
 
 model Product {
@@ -94,13 +99,13 @@ model Product {
   ratingAvg   Float?
   ratingCount Int    @default(0)
 
-  brandId    String?
+  brandId    String
   categoryId String?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime? @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  brand    Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  brand    Brand     @relation(fields: [brandId], references: [id], onDelete: Restrict)
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   attributes         ProductAttributeValue[]
@@ -152,8 +157,7 @@ model ProductImage {
   sortOrder Int     @default(0)
   isPrimary Boolean @default(false)
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime? @updatedAt
+  createdAt DateTime @default(now())
 
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -171,8 +175,8 @@ model Warehouse {
   isDefault Boolean @default(false)
   isActive  Boolean @default(true)
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime? @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   inventory Inventory[]
 
@@ -217,8 +221,7 @@ model Attribute {
   name String
   type AttributeType
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime? @updatedAt
+  createdAt DateTime @default(now())
 
   values AttributeValue[]
 
