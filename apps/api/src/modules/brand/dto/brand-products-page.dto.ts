@@ -1,18 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { BrandProductsResponseSchema } from '@repo/contracts';
+import { createZodDto } from 'nestjs-zod';
 
-export class BrandProductsPageDto {
-  @ApiProperty({ type: 'array', items: { type: 'object' } })
-  data!: unknown[];
-
-  @ApiProperty({ example: 42 })
-  total!: number;
-
-  @ApiProperty({ example: 1 })
-  page!: number;
-
-  @ApiProperty({ example: 10 })
-  limit!: number;
-
-  @ApiProperty({ example: 5 })
-  totalPages!: number;
-}
+export class BrandProductsPageDto extends createZodDto(
+  BrandProductsResponseSchema,
+) {}

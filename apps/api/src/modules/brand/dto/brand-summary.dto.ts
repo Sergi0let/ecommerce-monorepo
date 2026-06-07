@@ -1,10 +1,4 @@
-import { PickType } from '@nestjs/swagger';
-import { BrandResponseDto } from './brand-response.dto';
+import { BrandSummarySchema } from '@repo/contracts';
+import { createZodDto } from 'nestjs-zod';
 
-export class BrandSummaryDto extends PickType(BrandResponseDto, [
-  'id',
-  'name',
-  'slug',
-  'logo',
-  'isActive',
-] as const) {}
+export class BrandSummaryDto extends createZodDto(BrandSummarySchema) {}

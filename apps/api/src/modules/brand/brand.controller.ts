@@ -9,8 +9,6 @@ import {
   HttpStatus,
   HttpCode,
   Query,
-  DefaultValuePipe,
-  ParseIntPipe,
   ParseBoolPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
@@ -20,6 +18,9 @@ import { UpdateBrandDto } from './dto/update-brand.dto';
 import { BrandResponseDto, BrandWithCountsDto } from './dto/brand-response.dto';
 import { BrandSummaryDto } from './dto/brand-summary.dto';
 import { BrandProductsPageDto } from './dto/brand-products-page.dto';
+import { BrandDetailDto } from './dto/brand-detail.dto';
+import { BrandBySlugDto } from './dto/brand-by-slug.dto';
+import { PaginationDto } from 'src/common/dto/pagination.dto';
 
 @ApiTags('brands')
 @Controller('brands')
@@ -46,7 +47,7 @@ export class BrandController {
 
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get brand by slug with active products' })
-  @ApiResponse({ status: 200, type: BrandResponseDto })
+  @ApiResponse({ status: 200, type: BrandBySlugDto })
   @ApiResponse({ status: 404, description: 'Brand not found' })
   findBySlug(@Param('slug') slug: string) {
     return this.brandService.findBySlug(slug);
@@ -55,19 +56,13 @@ export class BrandController {
   @Get(':id/products')
   @ApiOperation({ summary: 'Get active products of a brand' })
   @ApiResponse({ status: 200, type: BrandProductsPageDto })
-  @ApiQuery({ name: 'page', type: Number, required: false, example: 1 })
-  @ApiQuery({ name: 'limit', type: Number, required: false, example: 10 })
-  findByIdProducts(
-    @Param('id') id: string,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
-  ) {
-    return this.brandService.getProducts(id, page, limit);
+  findByIdProducts(@Param('id') id: string, @Query() query: PaginationDto) {
+    return this.brandService.getProducts(id, query.page, query.limit);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get brand by ID' })
-  @ApiResponse({ status: 200, type: BrandResponseDto })
+  @ApiResponse({ status: 200, type: BrandDetailDto })
   @ApiResponse({ status: 404, description: 'Brand not found' })
   findById(@Param('id') id: string) {
     return this.brandService.findById(id);
