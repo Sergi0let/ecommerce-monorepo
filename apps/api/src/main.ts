@@ -1,15 +1,17 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { PrismaExeptionFilter } from './common/filters/prisma.filter';
-import { ValidationPipe } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { cleanupOpenApiDoc } from 'nestjs-zod';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
+
+  app.setGlobalPrefix('api');
 
   const config = new DocumentBuilder()
     .setTitle('Market Cosmo API')
@@ -18,21 +20,20 @@ async function bootstrap() {
     .addTag('market-cosmo')
     .build();
 
-  const documentFactory = () => SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, documentFactory, {
+  const rawDocument = SwaggerModule.createDocument(app, config);
+  const document = cleanupOpenApiDoc(rawDocument);
+  SwaggerModule.setup('docs', app, document, {
     useGlobalPrefix: true,
   });
 
   app.useLogger(app.get(Logger));
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+
   app.useGlobalFilters(new PrismaExeptionFilter());
-  app.setGlobalPrefix('api');
+  app.enableCors({
+    origin: (process.env.CORS_ORIGINS ?? 'http://localhost:3010')
+      .split(',')
+      .map((origin) => origin.trim()),
+  });
 
   await app.listen(process.env.PORT ?? 3006);
 }
