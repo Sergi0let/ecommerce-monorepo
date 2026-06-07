@@ -38,6 +38,32 @@ domain/
 └── index.ts     # публічний API домену
 ```
 
+#### example on brands
+```
+brand/
+├── inputs/
+│   ├── create-brand.schema.ts
+│   ├── update-brand.schema.ts
+│   └── index.ts
+│
+├── schemas/
+│   ├── brand.schema.ts
+│   ├── brand-summary.schema.ts
+│   ├── brand-with-counts.schema.ts
+│   └── index.ts
+│
+├── responses/
+│   ├── brand-detail.response.ts
+│   ├── brand-by-slug.response.ts
+│   └── index.ts
+│
+├── types/
+│   ├── brand.types.ts
+│   └── index.ts
+│
+└── index.ts
+```
+
 ### Призначення шарів
 
 | Шар | Що описує | Приклад |

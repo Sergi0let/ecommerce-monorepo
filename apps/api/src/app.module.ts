@@ -6,6 +6,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { BrandModule } from './modules/brand/brand.module';
 import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ZodSerializerInterceptor, ZodValidationPipe } from 'nestjs-zod';
+import { CategoryModule } from './modules/category/category.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ZodSerializerInterceptor, ZodValidationPipe } from 'nestjs-zod';
       },
     }),
     BrandModule,
+    CategoryModule,
   ],
   controllers: [AppController],
   providers: [
