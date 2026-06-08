@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
+import { ProductModule } from './modules/product/product.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     BrandModule,
     CategoryModule,
+    ProductModule,
   ],
   controllers: [AppController],
   providers: [

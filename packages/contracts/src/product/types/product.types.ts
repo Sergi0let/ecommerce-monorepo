@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { CreateProductSchema } from '../inputs/create-product.schema.js';
 import { BrandProductsResponseSchema } from '../responses/brand-products.response.js';
 import { ProductCoreSchema } from '../schemas/core.schema.js';
 import { ProductImageSchema } from '../schemas/image.schema.js';
@@ -13,3 +14,5 @@ export type ProductCoreType = z.infer<typeof ProductCoreSchema>;
 export type ProductWithPricesType = z.infer<typeof ProductWithPricesSchema>;
 export type ProductListItemType = z.infer<typeof ProductListItemSchema>;
 export type BrandProductsPageType = z.infer<typeof BrandProductsResponseSchema>;
+export type CreateProductType = z.infer<typeof CreateProductSchema>;
+export type CreateProductInputType = z.input<typeof CreateProductSchema>;
