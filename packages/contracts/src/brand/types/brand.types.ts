@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { CreateBrandSchema } from '../inputs/create-brand.schema.js';
 import { UpdateBrandSchema } from '../inputs/update-brand.schema.js';
-import { BrandSchema } from '../schemas/brand.schema.js';
-import { BrandWithCountsSchema } from '../schemas/brand-with-counts.schema.js';
-import { BrandSummarySchema } from '../schemas/brand-summary.schema.js';
-import { BrandDetailSchema } from '../responses/brand-detail.response.js';
 import { BrandBySlugSchema } from '../responses/brand-by-slug.response.js';
+import { BrandDetailSchema } from '../responses/brand-detail.response.js';
+import { BrandSummarySchema } from '../schemas/brand-summary.schema.js';
+import { BrandWithCountsSchema } from '../schemas/brand-with-counts.schema.js';
+import { BrandSchema } from '../schemas/brand.schema.js';
 
 export type CreateBrandType = z.infer<typeof CreateBrandSchema>;
 export type CreateBrandInputType = z.input<typeof CreateBrandSchema>;

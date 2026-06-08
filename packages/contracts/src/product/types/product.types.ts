@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
+import { BrandProductsResponseSchema } from '../responses/brand-products.response.js';
 import { ProductCoreSchema } from '../schemas/core.schema.js';
-import { ProductListItemSchema } from '../views/product-list-item.schema.js';
 import { ProductImageSchema } from '../schemas/image.schema.js';
 import { PriceSchema } from '../schemas/price.schema.js';
+import { ProductListItemSchema } from '../views/product-list-item.schema.js';
 import { ProductWithPricesSchema } from '../views/product-with-prices.schema.js';
-import { BrandProductsResponseSchema } from '../responses/brand-products.response.js';
 
 export type PriceType = z.infer<typeof PriceSchema>;
 export type ProductImageType = z.infer<typeof ProductImageSchema>;

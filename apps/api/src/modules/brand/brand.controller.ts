@@ -1,26 +1,26 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseBoolPipe,
   Post,
   Put,
-  Delete,
-  Body,
-  Param,
-  HttpStatus,
-  HttpCode,
   Query,
-  ParseBoolPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { BrandService } from './brand.service';
-import { CreateBrandDto } from './dto/create-brand.dto';
-import { UpdateBrandDto } from './dto/update-brand.dto';
+import { BrandBySlugDto } from './dto/brand-by-slug.dto';
+import { BrandDetailDto } from './dto/brand-detail.dto';
+import { BrandProductsPageDto } from './dto/brand-products-page.dto';
 import { BrandResponseDto, BrandWithCountsDto } from './dto/brand-response.dto';
 import { BrandSummaryDto } from './dto/brand-summary.dto';
-import { BrandProductsPageDto } from './dto/brand-products-page.dto';
-import { BrandDetailDto } from './dto/brand-detail.dto';
-import { BrandBySlugDto } from './dto/brand-by-slug.dto';
-import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { CreateBrandDto } from './dto/create-brand.dto';
+import { UpdateBrandDto } from './dto/update-brand.dto';
 
 @ApiTags('brands')
 @Controller('brands')

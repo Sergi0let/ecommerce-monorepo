@@ -1,7 +1,7 @@
-import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended";
-import globals from "globals";
-import tseslint from "typescript-eslint";
-import { config as baseConfig } from "./base.js";
+import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended'
+import globals from 'globals'
+import tseslint from 'typescript-eslint'
+import { config as baseConfig } from './base.js'
 
 /**
  * A custom ESLint configuration for NestJS applications.
@@ -17,13 +17,13 @@ export const nestJsConfig = tseslint.config(
         ...globals.node,
         ...globals.jest,
       },
-      sourceType: "commonjs",
+      sourceType: 'commonjs',
     },
   },
   {
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      '@typescript-eslint/no-explicit-any': 'off',
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
-);
+)

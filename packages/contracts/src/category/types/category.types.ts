@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { CategorySchema } from '../schemas/index.js';
-import { CategoryListItemSchema } from '../schemas/index.js';
 import { CreateCategorySchema } from '../inputs/create-category.schema.js';
 import { UpdateCategorySchema } from '../inputs/update-category.schema.js';
+import { CategoryListItemSchema, CategorySchema } from '../schemas/index.js';
 
 export type CategoryType = z.infer<typeof CategorySchema>;
 export type CategoryListItemType = z.infer<typeof CategoryListItemSchema>;
