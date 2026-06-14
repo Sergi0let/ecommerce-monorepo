@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { BrandSchema } from './brand.schema.js';
 
 export const BrandSummarySchema = BrandSchema.pick({
@@ -6,4 +7,7 @@ export const BrandSummarySchema = BrandSchema.pick({
   slug: true,
   logo: true,
   isActive: true,
+}).extend({
+  categoriesCount: z.number().int().nonnegative(),
+  productsCount: z.number().int().nonnegative(),
 });

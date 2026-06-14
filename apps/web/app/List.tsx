@@ -8,7 +8,7 @@ const List = () => {
   const [brands, setBrands] = useState<BrandSummaryType[]>([])
   useEffect(() => {
     getBrandSummaries().then((data) => {
-      setBrands(data)
+      setBrands(data.data)
     })
   }, [])
   return (

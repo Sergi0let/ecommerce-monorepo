@@ -1,8 +1,8 @@
 import {
   BrandProductsResponseSchema,
-  BrandSummarySchema,
+  BrandSummariesResponseSchema,
+  type BrandSummariesPageType,
   type BrandProductsPageType,
-  type BrandSummaryType,
 } from '@repo/contracts'
 import { safeParseSchema } from '@repo/contracts/common'
 
@@ -19,9 +19,9 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export async function getBrandSummaries(): Promise<BrandSummaryType[]> {
+export async function getBrandSummaries(): Promise<BrandSummariesPageType> {
   const data = await fetchJson<unknown>(`${API_BASE_URL}/brands/list`)
-  const parsed = BrandSummarySchema.array().safeParse(data)
+  const parsed = safeParseSchema(BrandSummariesResponseSchema, data)
 
   if (!parsed.success) {
     throw new Error('Invalid brand summaries response')

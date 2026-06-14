@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { BrandSummariesPageType } from '@repo/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandsQueryDto } from './dto/brands-query.dto';
@@ -110,6 +111,52 @@ export class BrandService {
     return brand;
   }
 
+  async findAllSummaries(
+    query: BrandProductsQueryDto,
+  ): Promise<BrandSummariesPageType> {
+    const { limit = 10, page = 1, sort = 'desc', isActive = true } = query;
+
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const skip = (safePage - 1) * safeLimit;
+    const where = { isActive };
+
+    const [brands, total] = await Promise.all([
+      this.prisma.client.brand.findMany({
+        where,
+        skip,
+        take: safeLimit,
+        orderBy: { name: sort },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logo: true,
+          isActive: true,
+          _count: {
+            select: {
+              categories: true,
+              products: true,
+            },
+          },
+        },
+      }),
+      this.prisma.client.brand.count({ where }),
+    ]);
+
+    return {
+      data: brands.map(({ _count, ...brand }) => ({
+        ...brand,
+        categoriesCount: _count.categories,
+        productsCount: _count.products,
+      })),
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
+    };
+  }
+
   async getProductsBySlug(slug: string, query: BrandProductsQueryDto) {
     const brand = await this.prisma.client.brand.findUnique({
       where: { slug },
@@ -159,20 +206,6 @@ export class BrandService {
     }
 
     return brand;
-  }
-
-  findAllNames() {
-    return this.prisma.client.brand.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        logo: true,
-        isActive: true,
-      },
-    });
   }
 
   // TODO create class for extends

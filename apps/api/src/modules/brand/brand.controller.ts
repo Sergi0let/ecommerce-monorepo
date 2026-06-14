@@ -15,7 +15,7 @@ import { BrandService } from './brand.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandProductsPageDto } from './dto/brand-products-page.dto';
 import { BrandResponseDto } from './dto/brand-response.dto';
-import { BrandSummaryDto } from './dto/brand-summary.dto';
+import { BrandSummariesPageDto } from './dto/brand-summaries-page.dto';
 import { BrandDto } from './dto/brand.dto';
 import { BrandsQueryDto } from './dto/brands-query.dto';
 import { CreateBrandDto } from './dto/create-brand.dto';
@@ -70,6 +70,13 @@ export class BrandController {
     return this.brandService.getById(id);
   }
 
+  @Get('list')
+  @ApiOperation({ summary: 'Get active brands for selectors' })
+  @ApiResponse({ status: 200, type: BrandSummariesPageDto })
+  findAllSummaries(@Query() query: BrandProductsQueryDto) {
+    return this.brandService.findAllSummaries(query);
+  }
+
   @Get(':slug/products')
   @ApiOperation({ summary: 'Get active products of a brand' })
   @ApiResponse({ status: 200, type: BrandProductsPageDto })
@@ -86,12 +93,5 @@ export class BrandController {
   @ApiResponse({ status: 404, description: 'Brand by SLUG not found' })
   getBySlug(@Param('slug') slug: string) {
     return this.brandService.getBySlug(slug);
-  }
-
-  @Get('list')
-  @ApiOperation({ summary: 'Get active brands for selectors' })
-  @ApiResponse({ status: 200, type: [BrandSummaryDto] })
-  findAllNames() {
-    return this.brandService.findAllNames();
   }
 }
