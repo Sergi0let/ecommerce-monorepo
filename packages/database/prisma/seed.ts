@@ -53,36 +53,140 @@ async function main() {
   // 3. Категорії
   const categoriesData = [
     {
-      name: 'Сироватки та олії',
-      slug: 'serums-oils',
-      metaTitle: 'Сироватки та олії',
+      name: 'Догляд за обличчям',
+      slug: 'face-care',
+      metaTitle: 'Догляд за обличчям',
     },
     {
-      name: 'Креми та догляд',
-      slug: 'creams-care',
-      metaTitle: 'Креми та догляд',
+      name: 'Очищення',
+      slug: 'cleansing',
+      parentSlug: 'face-care',
+      metaTitle: 'Очищення обличчя',
+    },
+    {
+      name: 'Сироватки',
+      slug: 'serums',
+      parentSlug: 'face-care',
+      metaTitle: 'Сироватки для обличчя',
+    },
+    {
+      name: 'Креми',
+      slug: 'face-creams',
+      parentSlug: 'face-care',
+      metaTitle: 'Креми для обличчя',
+    },
+    {
+      name: 'Тонери',
+      slug: 'toners',
+      parentSlug: 'face-care',
+      metaTitle: 'Тонери для обличчя',
     },
     {
       name: 'Ретиноїди',
       slug: 'retinoids',
-      metaTitle: 'Ретиноїди',
+      parentSlug: 'face-care',
+      metaTitle: 'Ретиноїди для обличчя',
     },
     {
       name: 'Пептиди та вітамін С',
       slug: 'peptides-vitamin-c',
+      parentSlug: 'face-care',
       metaTitle: 'Пептиди та вітамін С',
+    },
+    {
+      name: 'SPF захист',
+      slug: 'spf-protection',
+      parentSlug: 'face-care',
+      metaTitle: 'Сонцезахисні засоби SPF',
+    },
+    {
+      name: 'Догляд за тілом',
+      slug: 'body-care',
+      metaTitle: 'Догляд за тілом',
+    },
+    {
+      name: 'Креми для тіла',
+      slug: 'body-creams',
+      parentSlug: 'body-care',
+      metaTitle: 'Креми для тіла',
+    },
+    {
+      name: 'Олії для тіла',
+      slug: 'body-oils',
+      parentSlug: 'body-care',
+      metaTitle: 'Олії для тіла',
     },
   ]
 
-  const categories = await Promise.all(
-    categoriesData.map((cat) =>
-      prisma.category.upsert({
-        where: { slug: cat.slug },
-        update: {},
-        create: cat,
-      }),
-    ),
+  const parentCategories = await Promise.all(
+    categoriesData
+      .filter((cat) => !cat.parentSlug)
+      .map((cat) =>
+        prisma.category.upsert({
+          where: { slug: cat.slug },
+          update: {
+            name: cat.name,
+            parentId: null,
+            metaTitle: cat.metaTitle,
+          },
+          create: {
+            name: cat.name,
+            slug: cat.slug,
+            metaTitle: cat.metaTitle,
+          },
+        }),
+      ),
   )
+
+  const parentCategoriesBySlug = Object.fromEntries(
+    parentCategories.map((cat) => [cat.slug, cat]),
+  )
+
+  const getParentCategoryId = (slug: string) => {
+    const category = parentCategoriesBySlug[slug]
+
+    if (!category) {
+      throw new Error(`Parent category with slug "${slug}" was not seeded`)
+    }
+
+    return category.id
+  }
+
+  const childCategories = await Promise.all(
+    categoriesData
+      .filter((cat) => cat.parentSlug)
+      .map((cat) =>
+        prisma.category.upsert({
+          where: { slug: cat.slug },
+          update: {
+            name: cat.name,
+            parentId: getParentCategoryId(cat.parentSlug!),
+            metaTitle: cat.metaTitle,
+          },
+          create: {
+            name: cat.name,
+            slug: cat.slug,
+            parentId: getParentCategoryId(cat.parentSlug!),
+            metaTitle: cat.metaTitle,
+          },
+        }),
+      ),
+  )
+
+  const categoriesBySlug = Object.fromEntries(
+    [...parentCategories, ...childCategories].map((cat) => [cat.slug, cat]),
+  )
+
+  const getCategoryId = (slug: string) => {
+    const category = categoriesBySlug[slug]
+
+    if (!category) {
+      throw new Error(`Category with slug "${slug}" was not seeded`)
+    }
+
+    return category.id
+  }
+
   console.log('✅ Категорії створено')
 
   // 4. Атрибути
@@ -203,7 +307,7 @@ async function main() {
 
   // 6. Продукти
   const productsData = [
-    // Instytutum - Сироватки та олії
+    // Instytutum - Сироватки
     {
       name: 'Cryoshot Hydrating Serum Classic',
       slug: 'cryoshot-hydrating-serum',
@@ -211,7 +315,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 55000,
       brandId: instytutum.id,
-      categoryId: categories?.[0]?.id,
+      categorySlug: 'serums',
       isActive: true,
     },
     {
@@ -221,7 +325,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 59500,
       brandId: instytutum.id,
-      categoryId: categories?.[0]?.id,
+      categorySlug: 'serums',
       isActive: true,
     },
     {
@@ -231,7 +335,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 43000,
       brandId: instytutum.id,
-      categoryId: categories?.[0]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
     {
@@ -242,7 +346,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 59500,
       brandId: instytutum.id,
-      categoryId: categories?.[0]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
     {
@@ -253,11 +357,11 @@ async function main() {
       volumeMl: 200,
       priceCents: 29000,
       brandId: instytutum.id,
-      categoryId: categories?.[0]?.id,
+      categorySlug: 'toners',
       isActive: true,
     },
 
-    // Instytutum - Креми та догляд
+    // Instytutum - Креми та очищення
     {
       name: 'HydraFusion Hydrating Gel Cream Next-Gen',
       slug: 'hydrafusion-gel-cream',
@@ -265,7 +369,7 @@ async function main() {
       weightG: 50,
       priceCents: 42000,
       brandId: instytutum.id,
-      categoryId: categories?.[1]?.id,
+      categorySlug: 'face-creams',
       isActive: true,
     },
     {
@@ -275,7 +379,7 @@ async function main() {
       weightG: 50,
       priceCents: 59500,
       brandId: instytutum.id,
-      categoryId: categories?.[1]?.id,
+      categorySlug: 'face-creams',
       isActive: true,
     },
     {
@@ -285,7 +389,7 @@ async function main() {
       weightG: 50,
       priceCents: 42000,
       brandId: instytutum.id,
-      categoryId: categories?.[1]?.id,
+      categorySlug: 'face-creams',
       isActive: true,
     },
     {
@@ -295,7 +399,7 @@ async function main() {
       volumeMl: 150,
       priceCents: 22000,
       brandId: instytutum.id,
-      categoryId: categories?.[1]?.id,
+      categorySlug: 'cleansing',
       isActive: true,
     },
     {
@@ -305,7 +409,7 @@ async function main() {
       volumeMl: 200,
       priceCents: 29000,
       brandId: instytutum.id,
-      categoryId: categories?.[1]?.id,
+      categorySlug: 'toners',
       isActive: true,
     },
 
@@ -317,7 +421,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 28000,
       brandId: medik8.id,
-      categoryId: categories?.[2]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
     {
@@ -327,7 +431,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 32500,
       brandId: medik8.id,
-      categoryId: categories?.[2]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
     {
@@ -337,7 +441,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 43000,
       brandId: medik8.id,
-      categoryId: categories?.[2]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
     {
@@ -347,7 +451,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 55000,
       brandId: medik8.id,
-      categoryId: categories?.[2]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
     {
@@ -357,7 +461,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 32000,
       brandId: medik8.id,
-      categoryId: categories?.[2]?.id,
+      categorySlug: 'retinoids',
       isActive: true,
     },
 
@@ -369,7 +473,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 50000,
       brandId: medik8.id,
-      categoryId: categories?.[3]?.id,
+      categorySlug: 'peptides-vitamin-c',
       isActive: true,
     },
     {
@@ -379,7 +483,7 @@ async function main() {
       weightG: 50,
       priceCents: 50000,
       brandId: medik8.id,
-      categoryId: categories?.[3]?.id,
+      categorySlug: 'face-creams',
       isActive: true,
     },
     {
@@ -389,7 +493,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 42500,
       brandId: medik8.id,
-      categoryId: categories?.[3]?.id,
+      categorySlug: 'peptides-vitamin-c',
       isActive: true,
     },
     {
@@ -399,7 +503,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 32000,
       brandId: medik8.id,
-      categoryId: categories?.[3]?.id,
+      categorySlug: 'peptides-vitamin-c',
       isActive: true,
     },
     {
@@ -410,7 +514,7 @@ async function main() {
       volumeMl: 30,
       priceCents: 42500,
       brandId: medik8.id,
-      categoryId: categories?.[3]?.id,
+      categorySlug: 'peptides-vitamin-c',
       isActive: true,
     },
   ]
@@ -427,7 +531,7 @@ async function main() {
         weightG: p.weightG,
         isActive: p.isActive,
         brandId: p.brandId,
-        categoryId: p.categoryId,
+        categoryId: getCategoryId(p.categorySlug),
         prices: {
           create: {
             amountCents: p.priceCents,
