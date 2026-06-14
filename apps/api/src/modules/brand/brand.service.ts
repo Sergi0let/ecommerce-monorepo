@@ -71,7 +71,7 @@ export class BrandService {
     const brand = await this.prisma.client.brand.findUnique({
       where: { id },
       include: {
-        _count: { select: { products: true, categories: true } },
+        _count: { select: { products: true } },
       },
     });
 
@@ -79,9 +79,9 @@ export class BrandService {
       throw new NotFoundException(`Brand with ID ${id} not found`);
     }
 
-    if (brand._count.products > 0 || brand._count.categories > 0) {
+    if (brand._count.products > 0) {
       throw new ConflictException(
-        'Cannot delete brand with associated products or categories',
+        'Cannot delete brand with associated products',
       );
     }
 
@@ -111,7 +111,7 @@ export class BrandService {
     return brand;
   }
 
-  async findAllSummaries(
+  async getAllSummaries(
     query: BrandProductsQueryDto,
   ): Promise<BrandSummariesPageType> {
     const { limit = 10, page = 1, sort = 'desc', isActive = true } = query;
@@ -135,7 +135,6 @@ export class BrandService {
           isActive: true,
           _count: {
             select: {
-              categories: true,
               products: true,
             },
           },
@@ -143,11 +142,24 @@ export class BrandService {
       }),
       this.prisma.client.brand.count({ where }),
     ]);
+    const categoryGroups = await this.prisma.client.product.groupBy({
+      by: ['brandId', 'categoryId'],
+      where: {
+        brandId: { in: brands.map((brand) => brand.id) },
+        categoryId: { not: null },
+      },
+    });
+    const categoryCountsByBrandId = categoryGroups.reduce<
+      Record<string, number>
+    >((acc, group) => {
+      acc[group.brandId] = (acc[group.brandId] ?? 0) + 1;
+      return acc;
+    }, {});
 
     return {
       data: brands.map(({ _count, ...brand }) => ({
         ...brand,
-        categoriesCount: _count.categories,
+        categoriesCount: categoryCountsByBrandId[brand.id] ?? 0,
         productsCount: _count.products,
       })),
       page: safePage,

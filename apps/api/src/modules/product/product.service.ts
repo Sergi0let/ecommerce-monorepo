@@ -31,7 +31,7 @@ export class ProductService {
 
   async create(data: CreateProductDto) {
     await this.assertBrandExists(data.brandId);
-    await this.assertCategoryValid(data.categoryId, data.brandId);
+    await this.assertCategoryExists(data.categoryId);
     await this.assertSlugAvailable(data.slug);
 
     return this.prisma.client.product.create({
@@ -52,7 +52,6 @@ export class ProductService {
 
   async update(id: string, data: UpdateProductDto) {
     const product = await this.findById(id);
-    const brandId = data.brandId ?? product.brandId;
     const categoryId =
       data.categoryId === undefined ? product.categoryId : data.categoryId;
 
@@ -60,8 +59,8 @@ export class ProductService {
       await this.assertBrandExists(data.brandId);
     }
 
-    if (data.brandId || data.categoryId !== undefined) {
-      await this.assertCategoryValid(categoryId, brandId);
+    if (data.categoryId !== undefined) {
+      await this.assertCategoryExists(categoryId);
     }
 
     if (data.slug) {
@@ -90,10 +89,7 @@ export class ProductService {
     }
   }
 
-  private async assertCategoryValid(
-    categoryId: string | null | undefined,
-    brandId: string,
-  ) {
+  private async assertCategoryExists(categoryId: string | null | undefined) {
     if (categoryId == null) {
       return;
     }
@@ -104,12 +100,6 @@ export class ProductService {
 
     if (!category) {
       throw new NotFoundException(`Category with ID ${categoryId} not found`);
-    }
-
-    if (category.brandId !== brandId) {
-      throw new ConflictException(
-        'Category must belong to the same brand as product',
-      );
     }
   }
 

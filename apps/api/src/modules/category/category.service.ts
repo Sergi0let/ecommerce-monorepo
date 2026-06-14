@@ -28,7 +28,6 @@ export class CategoryService {
         name: true,
         slug: true,
         parentId: true,
-        brandId: true,
         metaTitle: true,
         metaDescription: true,
       },
@@ -43,7 +42,6 @@ export class CategoryService {
         name: true,
         slug: true,
         parentId: true,
-        brandId: true,
         metaTitle: true,
         metaDescription: true,
       },
@@ -64,7 +62,6 @@ export class CategoryService {
         name: true,
         slug: true,
         parentId: true,
-        brandId: true,
         metaTitle: true,
         metaDescription: true,
       },
@@ -139,8 +136,7 @@ export class CategoryService {
   async create(data: CreateCategoryDto): Promise<CategoryListItemType> {
     this.logger.log(`Creating category ${data.name} with slug ${data.slug}`);
 
-    await this.assertBrandExists(data.brandId);
-    await this.assertParentValid(data.parentId, data.brandId);
+    await this.assertParentExists(data.parentId);
     await this.assertSlugAvailable(data.slug);
 
     return this.prisma.client.category.create({
@@ -148,7 +144,6 @@ export class CategoryService {
         name: data.name,
         slug: data.slug,
         parentId: data.parentId ?? null,
-        brandId: data.brandId,
         metaTitle: data.metaTitle,
         metaDescription: data.metaDescription,
       },
@@ -163,18 +158,13 @@ export class CategoryService {
       `Updating category ${id} with data ${JSON.stringify(data)}`,
     );
 
-    const category = await this.findById(id);
-    const brandId = data.brandId ?? category.brandId;
-
-    if (data.brandId) {
-      await this.assertBrandExists(data.brandId);
-    }
+    await this.findById(id);
 
     if (data.parentId !== undefined) {
       if (data.parentId === id) {
         throw new ConflictException('Category cannot be its own parent');
       }
-      await this.assertParentValid(data.parentId, brandId);
+      await this.assertParentExists(data.parentId);
     }
 
     if (data.slug) {
@@ -187,7 +177,6 @@ export class CategoryService {
         name: data.name,
         slug: data.slug,
         parentId: data.parentId,
-        brandId: data.brandId,
         metaTitle: data.metaTitle,
         metaDescription: data.metaDescription,
       },
@@ -196,7 +185,6 @@ export class CategoryService {
         name: true,
         slug: true,
         parentId: true,
-        brandId: true,
         metaTitle: true,
         metaDescription: true,
       },
@@ -239,20 +227,7 @@ export class CategoryService {
     }
   }
 
-  private async assertBrandExists(brandId: string) {
-    const brand = await this.prisma.client.brand.findUnique({
-      where: { id: brandId },
-    });
-
-    if (!brand) {
-      throw new NotFoundException(`Brand with ID ${brandId} not found`);
-    }
-  }
-
-  private async assertParentValid(
-    parentId: string | null | undefined,
-    brandId: string,
-  ) {
+  private async assertParentExists(parentId: string | null | undefined) {
     if (parentId == null) {
       return;
     }
@@ -264,12 +239,6 @@ export class CategoryService {
     if (!parent) {
       throw new NotFoundException(
         `Parent category with ID ${parentId} not found`,
-      );
-    }
-
-    if (parent.brandId !== brandId) {
-      throw new ConflictException(
-        'Parent category must belong to the same brand',
       );
     }
   }

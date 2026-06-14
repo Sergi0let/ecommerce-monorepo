@@ -73,8 +73,8 @@ export class BrandController {
   @Get('list')
   @ApiOperation({ summary: 'Get active brands for selectors' })
   @ApiResponse({ status: 200, type: BrandSummariesPageDto })
-  findAllSummaries(@Query() query: BrandProductsQueryDto) {
-    return this.brandService.findAllSummaries(query);
+  getAllSummaries(@Query() query: BrandProductsQueryDto) {
+    return this.brandService.getAllSummaries(query);
   }
 
   @Get(':slug/products')
