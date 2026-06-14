@@ -7,7 +7,6 @@ export const CategorySchema = z.object({
   name: z.string(),
   slug: z.string(),
   parentId: UuidSchema.nullable(),
-  brandId: UuidSchema,
   metaTitle: z.string().nullable(),
   metaDescription: z.string().nullable(),
   createdAt: TimestampSchema,
