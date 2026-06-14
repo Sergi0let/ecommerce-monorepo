@@ -50,33 +50,27 @@ async function main() {
   ])
   console.log('✅ Бренди створено')
 
-  // 3. Категорії (з brandId)
+  // 3. Категорії
   const categoriesData = [
-    // Категорії Instytutum
     {
       name: 'Сироватки та олії',
       slug: 'serums-oils',
-      metaTitle: 'Сироватки та олії Instytutum',
-      brandId: instytutum.id,
+      metaTitle: 'Сироватки та олії',
     },
     {
       name: 'Креми та догляд',
       slug: 'creams-care',
-      metaTitle: 'Креми та догляд Instytutum',
-      brandId: instytutum.id,
+      metaTitle: 'Креми та догляд',
     },
-    // Категорії Medik8
     {
       name: 'Ретиноїди',
       slug: 'retinoids',
-      metaTitle: 'Ретиноїди Medik8 | Crystal Retinal',
-      brandId: medik8.id,
+      metaTitle: 'Ретиноїди',
     },
     {
       name: 'Пептиди та вітамін С',
       slug: 'peptides-vitamin-c',
-      metaTitle: 'Пептиди та вітамін С Medik8',
-      brandId: medik8.id,
+      metaTitle: 'Пептиди та вітамін С',
     },
   ]
 

@@ -18,8 +18,7 @@ model Brand {
   createdAt DateTime  @default(now())
   updatedAt DateTime? @updatedAt
 
-  products   Product[]
-  categories Category[]
+  products Product[]
 
   logo            String?
   description     String?
@@ -61,7 +60,6 @@ model Category {
   name     String
   slug     String  @unique
   parentId String?
-  brandId  String // Додано зв'язок з брендом
 
   metaTitle       String?
   metaDescription String?
@@ -71,14 +69,11 @@ model Category {
 
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
-  brand    Brand      @relation(fields: [brandId], references: [id], onDelete: Restrict)
 
   products Product[]
 
-  @@unique([brandId, slug]) // Унікальний slug в межах бренду
   @@index([slug])
   @@index([parentId])
-  @@index([brandId])
 }
 
 model Product {
@@ -106,7 +101,7 @@ model Product {
   updatedAt DateTime @updatedAt
 
   brand    Brand     @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id])
 
   attributes         ProductAttributeValue[]
   reviews            Review[]
