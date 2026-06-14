@@ -4,10 +4,15 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { CategoryListItemType } from '@repo/contracts';
+import { BrandProductsPageType, CategoryListItemType } from '@repo/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+
+const activePriceFilter = {
+  isValidFrom: { lte: new Date() },
+  OR: [{ isValidTo: null }, { isValidTo: { gte: new Date() } }],
+};
 
 @Injectable()
 export class CategoryService {
@@ -70,6 +75,65 @@ export class CategoryService {
     }
 
     return category;
+  }
+
+  async getProductsBySlug(
+    slug: string,
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<BrandProductsPageType> {
+    const category = await this.prisma.client.category.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    if (!category) {
+      throw new NotFoundException(`Category with slug ${slug} not found`);
+    }
+
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const skip = (safePage - 1) * safeLimit;
+
+    const where = { categoryId: category.id, isActive: true };
+
+    const [products, total] = await Promise.all([
+      this.prisma.client.product.findMany({
+        where,
+        skip,
+        take: safeLimit,
+        orderBy: { name: 'asc' },
+        include: {
+          prices: { where: activePriceFilter, take: 1 },
+          images: { orderBy: { sortOrder: 'asc' } },
+        },
+      }),
+      this.prisma.client.product.count({ where }),
+    ]);
+
+    return {
+      data: products.map((product) => ({
+        ...product,
+        deletedAt: product.deletedAt?.toISOString() ?? null,
+        createdAt: product.createdAt.toISOString(),
+        updatedAt: product.updatedAt.toISOString(),
+        prices: product.prices.map((price) => ({
+          ...price,
+          isValidFrom: price.isValidFrom?.toISOString() ?? null,
+          isValidTo: price.isValidTo?.toISOString() ?? null,
+          createdAt: price.createdAt.toISOString(),
+          updatedAt: price.updatedAt?.toISOString() ?? null,
+        })),
+        images: product.images.map((image) => ({
+          ...image,
+          createdAt: image.createdAt.toISOString(),
+        })),
+      })),
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
+    };
   }
 
   async create(data: CreateCategoryDto): Promise<CategoryListItemType> {

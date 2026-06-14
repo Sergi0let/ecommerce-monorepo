@@ -35,6 +35,14 @@ export class ProductController {
     return this.productService.findById(id);
   }
 
+  @Get('category/:slug/products')
+  @ApiOperation({ summary: 'Get a single by a id product' })
+  @ApiResponse({ status: 200, type: ProductDto })
+  @ApiParam({ name: 'id', type: String, required: true })
+  findProductsByCategorySlug(@Param('id') id: string) {
+    return this.productService.findById(id);
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a single product' })

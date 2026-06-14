@@ -13,7 +13,7 @@ export class ProductService {
 
   findAll() {
     return this.prisma.client.product.findMany({
-      orderBy: { name: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 

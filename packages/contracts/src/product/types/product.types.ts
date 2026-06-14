@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
+import { BrandProductsResponseSchema } from '../../brand/responses/brand-products.response.js';
 import { CreateProductSchema } from '../inputs/create-product.schema.js';
-import { BrandProductsResponseSchema } from '../responses/brand-products.response.js';
 import { ProductCoreSchema } from '../schemas/core.schema.js';
 import { ProductImageSchema } from '../schemas/image.schema.js';
 import { PriceSchema } from '../schemas/price.schema.js';

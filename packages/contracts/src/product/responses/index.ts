@@ -1,1 +1,1 @@
-export * from './brand-products.response.js';
+export * from '../../brand/responses/brand-products.response.js';
