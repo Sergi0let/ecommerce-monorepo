@@ -4,8 +4,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { BrandProductsPageType, CategoryListItemType } from '@repo/contracts';
+import {
+  CategoryProductsQueryType,
+  CategorySummariesPageType,
+} from '@repo/contracts';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CategoriesQueryDto } from './dto/categories-query.dto';
+import { CategoryProductsQueryDto } from './dto/category-products-query.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 
@@ -17,127 +22,13 @@ const activePriceFilter = {
 @Injectable()
 export class CategoryService {
   private readonly logger = new Logger(CategoryService.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(): Promise<CategoryListItemType[]> {
-    return this.prisma.client.category.findMany({
-      orderBy: { name: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        parentId: true,
-        metaTitle: true,
-        metaDescription: true,
-      },
-    });
-  }
-
-  async findById(id: string): Promise<CategoryListItemType> {
-    const category = await this.prisma.client.category.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        parentId: true,
-        metaTitle: true,
-        metaDescription: true,
-      },
-    });
-
-    if (!category) {
-      throw new NotFoundException(`Category with ID ${id} not found`);
-    }
-
-    return category;
-  }
-
-  async findBySlug(slug: string): Promise<CategoryListItemType> {
-    const category = await this.prisma.client.category.findUnique({
-      where: { slug },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        parentId: true,
-        metaTitle: true,
-        metaDescription: true,
-      },
-    });
-
-    if (!category) {
-      throw new NotFoundException(`Category with slug ${slug} not found`);
-    }
-
-    return category;
-  }
-
-  async getProductsBySlug(
-    slug: string,
-    page: number = 1,
-    limit: number = 10,
-  ): Promise<BrandProductsPageType> {
-    const category = await this.prisma.client.category.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
-
-    if (!category) {
-      throw new NotFoundException(`Category with slug ${slug} not found`);
-    }
-
-    const safePage = Math.max(page, 1);
-    const safeLimit = Math.min(Math.max(limit, 1), 100);
-    const skip = (safePage - 1) * safeLimit;
-
-    const where = { categoryId: category.id, isActive: true };
-
-    const [products, total] = await Promise.all([
-      this.prisma.client.product.findMany({
-        where,
-        skip,
-        take: safeLimit,
-        orderBy: { name: 'asc' },
-        include: {
-          prices: { where: activePriceFilter, take: 1 },
-          images: { orderBy: { sortOrder: 'asc' } },
-        },
-      }),
-      this.prisma.client.product.count({ where }),
-    ]);
-
-    return {
-      data: products.map((product) => ({
-        ...product,
-        deletedAt: product.deletedAt?.toISOString() ?? null,
-        createdAt: product.createdAt.toISOString(),
-        updatedAt: product.updatedAt.toISOString(),
-        prices: product.prices.map((price) => ({
-          ...price,
-          isValidFrom: price.isValidFrom?.toISOString() ?? null,
-          isValidTo: price.isValidTo?.toISOString() ?? null,
-          createdAt: price.createdAt.toISOString(),
-          updatedAt: price.updatedAt?.toISOString() ?? null,
-        })),
-        images: product.images.map((image) => ({
-          ...image,
-          createdAt: image.createdAt.toISOString(),
-        })),
-      })),
-      total,
-      page: safePage,
-      limit: safeLimit,
-      totalPages: Math.ceil(total / safeLimit),
-    };
-  }
-
-  async create(data: CreateCategoryDto): Promise<CategoryListItemType> {
+  async create(data: CreateCategoryDto) {
     this.logger.log(`Creating category ${data.name} with slug ${data.slug}`);
 
-    await this.assertParentExists(data.parentId);
     await this.assertSlugAvailable(data.slug);
+    await this.assertParentExists(data.parentId);
 
     return this.prisma.client.category.create({
       data: {
@@ -150,15 +41,12 @@ export class CategoryService {
     });
   }
 
-  async update(
-    id: string,
-    data: UpdateCategoryDto,
-  ): Promise<CategoryListItemType> {
+  async updateById(id: string, data: UpdateCategoryDto) {
     this.logger.log(
       `Updating category ${id} with data ${JSON.stringify(data)}`,
     );
 
-    await this.findById(id);
+    await this.getById(id);
 
     if (data.parentId !== undefined) {
       if (data.parentId === id) {
@@ -179,14 +67,6 @@ export class CategoryService {
         parentId: data.parentId,
         metaTitle: data.metaTitle,
         metaDescription: data.metaDescription,
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        parentId: true,
-        metaTitle: true,
-        metaDescription: true,
       },
     });
   }
@@ -212,7 +92,125 @@ export class CategoryService {
     }
 
     await this.prisma.client.category.delete({ where: { id } });
+
     this.logger.log(`Category ${id} deleted successfully`);
+  }
+
+  getAll(query: CategoriesQueryDto) {
+    const { sort = 'desc' } = query;
+
+    return this.prisma.client.category.findMany({
+      orderBy: { createdAt: sort },
+    });
+  }
+
+  async getById(id: string) {
+    const category = await this.prisma.client.category.findUnique({
+      where: { id },
+    });
+
+    if (!category) {
+      throw new NotFoundException(`Category with ID ${id} not found`);
+    }
+
+    return category;
+  }
+
+  async getAllSummaries(
+    query: CategoryProductsQueryDto,
+  ): Promise<CategorySummariesPageType> {
+    const { limit = 10, page = 1, sort = 'desc' } = query;
+
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const skip = (safePage - 1) * safeLimit;
+
+    const [categories, total] = await Promise.all([
+      this.prisma.client.category.findMany({
+        skip,
+        take: safeLimit,
+        orderBy: { name: sort },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          parentId: true,
+          metaTitle: true,
+          metaDescription: true,
+          _count: {
+            select: {
+              children: true,
+              products: true,
+            },
+          },
+        },
+      }),
+      this.prisma.client.category.count(),
+    ]);
+
+    return {
+      data: categories.map(({ _count, ...category }) => ({
+        ...category,
+        childrenCount: _count.children,
+        productsCount: _count.products,
+      })),
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
+    };
+  }
+
+  async getBySlug(slug: string) {
+    const category = await this.prisma.client.category.findUnique({
+      where: { slug },
+    });
+
+    if (!category) {
+      throw new NotFoundException(`Category with slug ${slug} not found`);
+    }
+
+    return category;
+  }
+
+  async getProductsBySlug(slug: string, query: CategoryProductsQueryType) {
+    const category = await this.prisma.client.category.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    if (!category) {
+      throw new NotFoundException(`Category with slug ${slug} not found`);
+    }
+
+    const { limit = 10, page = 1, sort = 'desc' } = query;
+
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const skip = (safePage - 1) * safeLimit;
+    const where = { categoryId: category.id, isActive: true };
+
+    const [products, total] = await Promise.all([
+      this.prisma.client.product.findMany({
+        where,
+        skip,
+        take: safeLimit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          prices: { where: activePriceFilter, take: 1 },
+          images: { orderBy: { sortOrder: sort } },
+        },
+      }),
+      this.prisma.client.product.count({ where }),
+    ]);
+
+    return {
+      data: products,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
+    };
   }
 
   private async assertSlugAvailable(slug: string, excludeId?: string) {

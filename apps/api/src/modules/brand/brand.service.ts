@@ -41,7 +41,7 @@ export class BrandService {
     });
   }
 
-  async update(id: string, data: UpdateBrandDto) {
+  async updateById(id: string, data: UpdateBrandDto) {
     this.logger.log(`Updating brand ${id} with data ${JSON.stringify(data)}`);
 
     await this.getById(id);
@@ -220,7 +220,6 @@ export class BrandService {
     return brand;
   }
 
-  // TODO create class for extends
   private async assertSlugAvailable(slug: string, excludeId?: string) {
     const existing = await this.prisma.client.brand.findUnique({
       where: { slug },

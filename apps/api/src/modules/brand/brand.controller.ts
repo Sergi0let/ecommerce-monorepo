@@ -14,14 +14,13 @@ import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BrandService } from './brand.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandProductsPageDto } from './dto/brand-products-page.dto';
-import { BrandResponseDto } from './dto/brand-response.dto';
 import { BrandSummariesPageDto } from './dto/brand-summaries-page.dto';
 import { BrandDto } from './dto/brand.dto';
 import { BrandsQueryDto } from './dto/brands-query.dto';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 
-@ApiTags('brands')
+@ApiTags('Brands')
 @Controller('brands')
 export class BrandController {
   constructor(private readonly brandService: BrandService) {}
@@ -29,7 +28,7 @@ export class BrandController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new brand' })
-  @ApiResponse({ status: 201, type: BrandResponseDto })
+  @ApiResponse({ status: 201, type: BrandDto })
   create(@Body() data: CreateBrandDto) {
     return this.brandService.create(data);
   }
@@ -37,8 +36,9 @@ export class BrandController {
   @Put('id/:id')
   @ApiOperation({ summary: 'Update brand by ID' })
   @ApiResponse({ status: 201, type: BrandDto })
+  @ApiResponse({ status: 404, description: 'Brand not found' })
   updateById(@Param('id') id: string, @Body() data: UpdateBrandDto) {
-    return this.brandService.update(id, data);
+    return this.brandService.updateById(id, data);
   }
 
   @Delete(':id')
@@ -47,7 +47,7 @@ export class BrandController {
   @ApiResponse({ status: 204, description: 'Brand deleted' })
   @ApiResponse({
     status: 409,
-    description: 'Brand has associated products or categories',
+    description: 'Brand has associated products',
   })
   delete(@Param('id') id: string) {
     return this.brandService.delete(id);
