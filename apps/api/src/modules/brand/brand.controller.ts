@@ -10,7 +10,13 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { BrandService } from './brand.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandProductsPageDto } from './dto/brand-products-page.dto';
@@ -35,6 +41,7 @@ export class BrandController {
 
   @Put('id/:id')
   @ApiOperation({ summary: 'Update brand by ID' })
+  @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: BrandDto })
   @ApiResponse({ status: 404, description: 'Brand not found' })
   updateById(@Param('id') id: string, @Body() data: UpdateBrandDto) {
@@ -64,6 +71,7 @@ export class BrandController {
 
   @Get('id/:id')
   @ApiOperation({ summary: 'Get brand by ID' })
+  @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: BrandDto })
   @ApiResponse({ status: 404, description: 'Brand by ID not found' })
   getById(@Param('id') id: string) {

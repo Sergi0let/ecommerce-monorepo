@@ -10,11 +10,17 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { CategoryService } from './category.service';
 import { CategoriesQueryDto } from './dto/categories-query.dto';
-import { CategoryProductsQueryDto } from './dto/category-products-query.dto';
 import { CategoryProductsPageDto } from './dto/category-products-page.dto';
+import { CategoryProductsQueryDto } from './dto/category-products-query.dto';
 import { CategorySummariesPageDto } from './dto/category-summaries-page.dto';
 import { CategoryDto } from './dto/category.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -39,6 +45,7 @@ export class CategoryController {
 
   @Put('id/:id')
   @ApiOperation({ summary: 'Update a category by ID' })
+  @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: CategoryDto })
   @ApiResponse({ status: 404, description: 'Category not found' })
   updateById(@Param('id') id: string, @Body() data: UpdateCategoryDto) {
@@ -67,6 +74,7 @@ export class CategoryController {
 
   @Get('id/:id')
   @ApiOperation({ summary: 'Get category by ID' })
+  @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: CategoryDto })
   @ApiResponse({ status: 404, description: 'Category by ID not found' })
   getById(@Param('id') id: string) {

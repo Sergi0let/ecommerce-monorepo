@@ -1,16 +1,8 @@
 import { z } from 'zod';
 
 import { SlugSchema, UuidSchema } from '../../common/primitives.js';
-import { ProductCoreSchema } from '../schemas/core.schema.js';
 
-export const CreateProductSchema = ProductCoreSchema.omit({
-  id: true,
-  deletedAt: true,
-  ratingAvg: true,
-  ratingCount: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
+export const CreateProductSchema = z.object({
   name: z.string().min(3),
   slug: SlugSchema,
   description: z.string().nullable().optional(),
