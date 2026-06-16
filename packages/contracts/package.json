@@ -15,6 +15,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./warehouse": {
+      "types": "./src/warehouse/index.ts",
+      "import": "./dist/warehouse/index.js",
+      "default": "./dist/warehouse/index.js"
+    },
     "./category": {
       "types": "./src/category/index.ts",
       "import": "./dist/category/index.js",
