@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import {
-  UuidSchema,
   SlugSchema,
   TimestampSchema,
+  UuidSchema,
 } from '../../common/primitives.js';
 
 export const BrandSchema = z.object({

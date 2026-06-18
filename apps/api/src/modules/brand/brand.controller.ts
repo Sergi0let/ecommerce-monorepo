@@ -1,86 +1,51 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
+  Param,
   Post,
   Put,
-  Delete,
-  Body,
-  Param,
-  HttpStatus,
-  HttpCode,
   Query,
-  ParseBoolPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { BrandService } from './brand.service';
+import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
+import { BrandProductsPageDto } from './dto/brand-products-page.dto';
+import { BrandSummariesPageDto } from './dto/brand-summaries-page.dto';
+import { BrandDto } from './dto/brand.dto';
+import { BrandsQueryDto } from './dto/brands-query.dto';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
-import { BrandResponseDto, BrandWithCountsDto } from './dto/brand-response.dto';
-import { BrandSummaryDto } from './dto/brand-summary.dto';
-import { BrandProductsPageDto } from './dto/brand-products-page.dto';
-import { BrandDetailDto } from './dto/brand-detail.dto';
-import { BrandBySlugDto } from './dto/brand-by-slug.dto';
-import { PaginationDto } from 'src/common/dto/pagination.dto';
 
-@ApiTags('brands')
+@ApiTags('Brands')
 @Controller('brands')
 export class BrandController {
   constructor(private readonly brandService: BrandService) {}
 
-  @Get()
-  @ApiOperation({ summary: 'Get all brands with product/category counts' })
-  @ApiResponse({ status: 200, type: [BrandWithCountsDto] })
-  @ApiQuery({ name: 'isActive', type: Boolean, required: false })
-  findAll(
-    @Query('isActive', new ParseBoolPipe({ optional: true }))
-    isActive?: boolean,
-  ) {
-    return this.brandService.findAll(isActive);
-  }
-
-  @Get('list')
-  @ApiOperation({ summary: 'Get active brands for selectors' })
-  @ApiResponse({ status: 200, type: [BrandSummaryDto] })
-  findAllNames() {
-    return this.brandService.findAllNames();
-  }
-
-  @Get('slug/:slug')
-  @ApiOperation({ summary: 'Get brand by slug with active products' })
-  @ApiResponse({ status: 200, type: BrandBySlugDto })
-  @ApiResponse({ status: 404, description: 'Brand not found' })
-  findBySlug(@Param('slug') slug: string) {
-    return this.brandService.findBySlug(slug);
-  }
-
-  @Get(':id/products')
-  @ApiOperation({ summary: 'Get active products of a brand' })
-  @ApiResponse({ status: 200, type: BrandProductsPageDto })
-  findByIdProducts(@Param('id') id: string, @Query() query: PaginationDto) {
-    return this.brandService.getProducts(id, query.page, query.limit);
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get brand by ID' })
-  @ApiResponse({ status: 200, type: BrandDetailDto })
-  @ApiResponse({ status: 404, description: 'Brand not found' })
-  findById(@Param('id') id: string) {
-    return this.brandService.findById(id);
-  }
-
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new brand' })
-  @ApiResponse({ status: 201, type: BrandResponseDto })
+  @ApiResponse({ status: 201, type: BrandDto })
   create(@Body() data: CreateBrandDto) {
     return this.brandService.create(data);
   }
 
-  @Put(':id')
-  @ApiOperation({ summary: 'Update brand' })
-  @ApiResponse({ status: 200, type: BrandResponseDto })
-  update(@Param('id') id: string, @Body() data: UpdateBrandDto) {
-    return this.brandService.update(id, data);
+  @Put('id/:id')
+  @ApiOperation({ summary: 'Update brand by ID' })
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiResponse({ status: 201, type: BrandDto })
+  @ApiResponse({ status: 404, description: 'Brand not found' })
+  updateById(@Param('id') id: string, @Body() data: UpdateBrandDto) {
+    return this.brandService.updateById(id, data);
   }
 
   @Delete(':id')
@@ -89,9 +54,52 @@ export class BrandController {
   @ApiResponse({ status: 204, description: 'Brand deleted' })
   @ApiResponse({
     status: 409,
-    description: 'Brand has associated products or categories',
+    description: 'Brand has associated products',
   })
   delete(@Param('id') id: string) {
     return this.brandService.delete(id);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get all brands' })
+  @ApiResponse({ status: 200, type: [BrandDto] })
+  @ApiQuery({ name: 'isActive', type: Boolean, required: false })
+  @ApiQuery({ name: 'sort', enum: ['asc', 'desc'], required: false })
+  getAll(@Query() query: BrandsQueryDto) {
+    return this.brandService.getAll(query);
+  }
+
+  @Get('id/:id')
+  @ApiOperation({ summary: 'Get brand by ID' })
+  @ApiParam({ name: 'id', type: String, required: true })
+  @ApiResponse({ status: 200, type: BrandDto })
+  @ApiResponse({ status: 404, description: 'Brand by ID not found' })
+  getById(@Param('id') id: string) {
+    return this.brandService.getById(id);
+  }
+
+  @Get('list')
+  @ApiOperation({ summary: 'Get active brands for selectors' })
+  @ApiResponse({ status: 200, type: BrandSummariesPageDto })
+  getAllSummaries(@Query() query: BrandProductsQueryDto) {
+    return this.brandService.getAllSummaries(query);
+  }
+
+  @Get(':slug/products')
+  @ApiOperation({ summary: 'Get active products of a brand' })
+  @ApiResponse({ status: 200, type: BrandProductsPageDto })
+  getProductsBySlug(
+    @Param('slug') slug: string,
+    @Query() query: BrandProductsQueryDto,
+  ) {
+    return this.brandService.getProductsBySlug(slug, query);
+  }
+
+  @Get(':slug')
+  @ApiOperation({ summary: 'Get brand by SLUG' })
+  @ApiResponse({ status: 200, type: BrandDto })
+  @ApiResponse({ status: 404, description: 'Brand by SLUG not found' })
+  getBySlug(@Param('slug') slug: string) {
+    return this.brandService.getBySlug(slug);
   }
 }
