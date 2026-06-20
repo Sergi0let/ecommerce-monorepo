@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { TimestampSchema, UuidSchema } from '../../common/primitives.js';
+import { ProductVariantSchema } from '../../product-variant/index.js';
 
 export const ProductCoreSchema = z.object({
   id: UuidSchema,
@@ -16,6 +17,7 @@ export const ProductCoreSchema = z.object({
   ratingAvg: z.number().nullable(),
   ratingCount: z.number().int(),
   brandId: UuidSchema,
+  variants: ProductVariantSchema,
   categoryId: UuidSchema.nullable(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,

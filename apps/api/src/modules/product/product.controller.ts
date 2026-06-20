@@ -33,6 +33,10 @@ export class ProductController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a single product' })
   @ApiResponse({ status: 201, type: ProductDto })
+  @ApiResponse({
+    status: 409,
+    description: 'Product variant exist with this SKU',
+  })
   create(@Body() data: CreateProductDto) {
     return this.productService.create(data);
   }
@@ -40,7 +44,7 @@ export class ProductController {
   @Put('id/:id')
   @ApiOperation({ summary: 'Update product by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
-  @ApiResponse({ status: 201, type: ProductDto })
+  @ApiResponse({ status: 200, type: ProductDto })
   @ApiResponse({ status: 404, description: 'Product not found' })
   updateById(@Param('id') id: string, @Body() data: UpdateProductDto) {
     return this.productService.updateById(id, data);

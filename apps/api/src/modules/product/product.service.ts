@@ -24,6 +24,7 @@ const getProductRelationsInclude = () => {
     images: {
       orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }],
     },
+    variants: true,
   };
 };
 

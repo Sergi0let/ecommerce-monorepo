@@ -35,6 +35,11 @@
       "import": "./dist/product/index.js",
       "default": "./dist/product/index.js"
     },
+    "./product-variant": {
+      "types": "./src/product-variant/index.ts",
+      "import": "./dist/product-variant/index.js",
+      "default": "./dist/product-variant/index.js"
+    },
     "./common": {
       "types": "./src/common/index.ts",
       "import": "./dist/common/index.js",
