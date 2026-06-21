@@ -8,16 +8,12 @@ import {
   CategoryProductsQueryType,
   CategorySummariesPageType,
 } from '@repo/contracts';
+import { getProductCatalogInclude } from '../../common/prisma/product-catalog.include';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CategoriesQueryDto } from './dto/categories-query.dto';
 import { CategoryProductsQueryDto } from './dto/category-products-query.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
-
-const activePriceFilter = {
-  isValidFrom: { lte: new Date() },
-  OR: [{ isValidTo: null }, { isValidTo: { gte: new Date() } }],
-};
 
 @Injectable()
 export class CategoryService {
@@ -195,11 +191,8 @@ export class CategoryService {
         where,
         skip,
         take: safeLimit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          prices: { where: activePriceFilter, take: 1 },
-          images: { orderBy: { sortOrder: sort } },
-        },
+        orderBy: { createdAt: sort },
+        include: getProductCatalogInclude(),
       }),
       this.prisma.client.product.count({ where }),
     ]);

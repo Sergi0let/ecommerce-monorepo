@@ -1,3 +1,3 @@
-import { CreateProductSchema } from './create-product.schema.js';
+import { ProductInputBaseSchema } from './create-product.schema.js';
 
-export const UpdateProductSchema = CreateProductSchema.partial();
+export const UpdateProductSchema = ProductInputBaseSchema.partial();

@@ -22,7 +22,7 @@ export class ProductPriceController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create new product price' })
+  @ApiOperation({ summary: 'Create a new price for a product variant' })
   @ApiResponse({ status: 201, type: ProductPriceDto })
   create(@Body() data: CreateProductPriceDto) {
     return this.productPriceService.create(data);

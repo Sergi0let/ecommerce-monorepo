@@ -10,4 +10,5 @@ export const ProductImageSchema = z.object({
   isPrimary: z.boolean(),
   createdAt: TimestampSchema,
   productId: UuidSchema,
+  variantId: UuidSchema.nullable(),
 });

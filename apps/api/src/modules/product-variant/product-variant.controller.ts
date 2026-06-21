@@ -31,7 +31,7 @@ export class ProductVariantController {
   @ApiOperation({ summary: 'Update a product variant by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductVariantDto })
-  @ApiResponse({ status: 404, description: 'Product variand by ID not found' })
+  @ApiResponse({ status: 404, description: 'Product variant by ID not found' })
   updateById(@Param('id') id: string, @Body() data: UpdateProductVariantDto) {
     return this.productVariantService.updateById(id, data);
   }
@@ -40,6 +40,7 @@ export class ProductVariantController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete product variant' })
   @ApiResponse({ status: 204, description: 'Delete product variant by id' })
+  @ApiResponse({ status: 409, description: 'Cannot delete the last variant' })
   delete(@Param('id') id: string) {
     return this.productVariantService.delete(id);
   }
@@ -48,7 +49,7 @@ export class ProductVariantController {
   @ApiOperation({ summary: 'Get product variant by id' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductVariantDto })
-  @ApiResponse({ status: 404, description: 'Product variand by ID not found' })
+  @ApiResponse({ status: 404, description: 'Product variant by ID not found' })
   getById(@Param('id') id: string) {
     return this.productVariantService.getById(id);
   }

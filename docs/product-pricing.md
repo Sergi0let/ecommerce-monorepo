@@ -1,82 +1,81 @@
-# Product Pricing
+# Product pricing
 
-Product prices are stored in the `Price` model. A price always belongs to a
-product, and it can optionally belong to a specific product variant.
+`ProductVariant` є єдиною продаваною сутністю. Кожен запис `Price` належить
+конкретному варіанту; ціни рівня `Product` не існує.
 
 ```prisma
 model Price {
-  productId String
-  variantId String?
+  id        String @id @default(uuid())
+  variantId String
+  currency  String @default("UAH")
+
+  amountCents    Int
+  costCents      Int?
+  compareAtCents Int?
+
+  isValidFrom DateTime?
+  isValidTo   DateTime?
+
+  variant ProductVariant @relation(fields: [variantId], references: [id])
 }
 ```
 
-## Product Price
+## Чому ціна належить варіанту
 
-A product-level price has `variantId: null`. This is the base price for the
-product.
+Кошик і замовлення завжди працюють із конкретним SKU. Навіть якщо два варіанти
+зараз мають однакову ціну, кожен отримує власний запис `Price`:
+
+| Variant                 |      Price |
+| ----------------------- | ---------: |
+| `cerave-cleanser-236ml` | 500.00 UAH |
+| `cerave-cleanser-473ml` | 500.00 UAH |
+
+Однакове числове значення не означає спільне володіння. Окремі записи дають
+можливість незалежно змінити ціну одного SKU та зберігати його історію.
+
+## API
+
+Створення ціни:
+
+```http
+POST /product-prices
+```
 
 ```json
 {
-  "productId": "product-uuid",
-  "variantId": null,
+  "variantId": "variant-uuid",
   "currency": "UAH",
   "amountCents": 50000,
-  "compareAtCents": 65000
+  "compareAtCents": 65000,
+  "isValidFrom": "2026-06-20T00:00:00.000Z"
 }
 ```
 
-`amountCents: 50000` means `500.00 UAH`.
+`amountCents: 50000` означає `500.00 UAH`. `productId` не передається, бо
+продукт однозначно визначається через `variant.productId`.
 
-The same request can omit `variantId`:
+Оновлення ціни змінює лише її значення та період дії. Переприв'язувати існуючу
+ціну до іншого варіанта не можна; для іншого варіанта створюється новий запис.
 
-```json
-{
-  "productId": "product-uuid",
-  "currency": "UAH",
-  "amountCents": 50000
-}
-```
+## Активна ціна
 
-Product-level prices are returned in:
+Ціна активна, якщо:
 
-```ts
-product.prices
-```
+- `isValidFrom` дорівнює `null` або не пізніше поточного часу;
+- `isValidTo` дорівнює `null` або не раніше поточного часу.
 
-## Variant Price
-
-A variant-level price has both `productId` and `variantId`. Use this when
-variants have different prices, for example different volume or package size.
+Product API повертає одну актуальну ціну всередині кожного варіанта:
 
 ```json
 {
-  "productId": "product-uuid",
-  "variantId": "variant-uuid-100ml",
-  "currency": "UAH",
-  "amountCents": 85000,
-  "compareAtCents": 100000
-}
-```
-
-Variant-level prices are returned inside each variant:
-
-```json
-{
-  "id": "product-uuid",
-  "prices": [
-    {
-      "variantId": null,
-      "amountCents": 50000
-    }
-  ],
   "variants": [
     {
-      "id": "variant-uuid-100ml",
-      "sku": "CREAM-100ML",
+      "slug": "cerave-cleanser-236ml",
       "prices": [
         {
-          "variantId": "variant-uuid-100ml",
-          "amountCents": 85000
+          "variantId": "variant-uuid",
+          "amountCents": 50000,
+          "currency": "UAH"
         }
       ]
     }
@@ -84,49 +83,11 @@ Variant-level prices are returned inside each variant:
 }
 ```
 
-## Frontend Price Selection
-
-If no variant is selected, show the base product price:
+На фронтенді немає fallback на `product.prices`:
 
 ```ts
-const price = product.prices[0];
+const price = selectedVariant.prices[0] ?? null;
 ```
 
-If a variant is selected, prefer the variant price and fall back to the product
-price:
-
-```ts
-const price = selectedVariant.prices[0] ?? product.prices[0];
-```
-
-## Valid Price Periods
-
-`isValidFrom` and `isValidTo` define when a price is active.
-
-```json
-{
-  "productId": "product-uuid",
-  "variantId": "variant-uuid",
-  "currency": "UAH",
-  "amountCents": 70000,
-  "compareAtCents": 90000,
-  "isValidFrom": "2026-06-20T00:00:00.000Z",
-  "isValidTo": "2026-06-30T23:59:59.000Z"
-}
-```
-
-The product API includes only currently active prices:
-
-- `isValidFrom` is `null` or less than/equal to now
-- `isValidTo` is `null` or greater than/equal to now
-
-## API
-
-Current endpoint:
-
-```http
-POST /product-prices
-```
-
-Use product-level prices for the base product price and variant-level prices
-only when a variant needs its own price.
+Порожній масив означає, що активної ціни немає і варіант не можна додати до
+кошика, доки storefront явно не визначить іншу поведінку.

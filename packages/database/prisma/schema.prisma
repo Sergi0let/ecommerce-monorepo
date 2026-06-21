@@ -31,10 +31,9 @@ model Brand {
 }
 
 model Price {
-  id        String  @id @default(uuid())
-  productId String
-  variantId String?
-  currency  String  @default("UAH")
+  id        String @id @default(uuid())
+  variantId String
+  currency  String @default("UAH")
 
   amountCents    Int // Ціна в копійках
   costCents      Int? // Собівартість в копійках
@@ -46,13 +45,11 @@ model Price {
   createdAt DateTime  @default(now())
   updatedAt DateTime? @updatedAt
 
-  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
-  @@index([productId])
   @@index([variantId])
   @@index([isValidFrom, isValidTo])
-  @@index([productId, isValidFrom, isValidTo])
+  @@index([variantId, isValidFrom, isValidTo])
 }
 
 model Category {
@@ -82,9 +79,6 @@ model Product {
   slug        String  @unique
   description String?
 
-  volumeMl Int?
-  weightG  Int?
-
   isActive  Boolean   @default(true)
   deletedAt DateTime?
 
@@ -108,8 +102,6 @@ model Product {
   productIngredients ProductIngredient[]
   images             ProductImage[]
   variants           ProductVariant[]
-  prices             Price[]
-  inventory          Inventory[]
 
   @@index([slug])
   @@index([brandId])
@@ -123,13 +115,15 @@ model Product {
 model ProductVariant {
   id String @id @default(uuid())
 
-  sku  String  @unique
+  slug String @unique
+  sku  String @unique
   name String?
 
   volumeMl Int?
   weightG  Int?
 
-  isActive Boolean @default(true)
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -138,9 +132,12 @@ model ProductVariant {
   product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   prices    Price[]
   inventory Inventory[]
+  images    ProductImage[]
 
   @@index([productId])
+  @@index([slug])
   @@index([sku])
+  @@unique([id, productId])
 }
 
 model ProductImage {
@@ -155,9 +152,12 @@ model ProductImage {
   createdAt DateTime @default(now())
 
   productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId String?
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId, productId], references: [id, productId], onDelete: Cascade)
 
   @@index([productId])
+  @@index([variantId])
   @@index([sortOrder])
   @@index([isPrimary])
 }
@@ -182,8 +182,7 @@ model Warehouse {
 
 model Inventory {
   id          String  @id @default(uuid())
-  productId   String
-  variantId   String?
+  variantId   String
   warehouseId String
 
   quantity Int @default(0) // Доступний залишок
@@ -197,12 +196,10 @@ model Inventory {
   updatedAt     DateTime  @updatedAt
   lastCountedAt DateTime? // Дата останньої інвентаризації
 
-  product   Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  warehouse Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, variantId, warehouseId])
-  @@index([productId])
+  @@unique([variantId, warehouseId])
   @@index([variantId])
   @@index([warehouseId])
   @@index([expiresAt])

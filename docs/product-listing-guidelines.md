@@ -6,11 +6,11 @@
 
 Запити виду "продукти по категорії" і "продукти по бренду" реалізовує не `ProductModule`, а модуль власника контексту:
 
-| Use case | Module | Controller | Service method |
-|----------|--------|------------|----------------|
-| Products by category | `CategoryModule` | `CategoryController` | `CategoryService.getProductsBySlug(...)` |
-| Products by brand | `BrandModule` | `BrandController` | `BrandService.getProductsBySlug(...)` або `BrandService.getProductsById(...)` |
-| Generic products CRUD/list | `ProductModule` | `ProductController` | `ProductService.findAll(...)`, `findById(...)`, `create(...)`, `update(...)`, `delete(...)` |
+| Use case                   | Module           | Controller           | Service method                                                                              |
+| -------------------------- | ---------------- | -------------------- | ------------------------------------------------------------------------------------------- |
+| Products by category       | `CategoryModule` | `CategoryController` | `CategoryService.getProductsBySlug(...)`                                                    |
+| Products by brand          | `BrandModule`    | `BrandController`    | `BrandService.getProductsBySlug(...)` або `BrandService.getProductsById(...)`               |
+| Generic products CRUD/list | `ProductModule`  | `ProductController`  | `ProductService.findAll(...)`, `findById(...)`, `create(...)`, `update(...)`, `delete(...)` |
 
 Причина: `ProductModule` відповідає за сам продукт як сутність, а `CategoryModule` і `BrandModule` відповідають за сторінки/контексти, де продукти показуються через відношення до категорії або бренду.
 
@@ -54,7 +54,7 @@ GET /products/brand/:slug/products
 
 - перевірку існування категорії;
 - вибір продуктів, прив'язаних до категорії;
-- застосування правил категорійного списку: `isActive`, pagination, sorting, active prices, images;
+- застосування правил категорійного списку: `isActive`, pagination, sorting, variant prices, images;
 - повернення DTO/contract shape, який описує сторінку продуктів категорії.
 
 Очікуваний метод:
@@ -73,7 +73,7 @@ getProductsBySlug(
 
 - перевірку існування бренду;
 - вибір продуктів, прив'язаних до бренду;
-- застосування правил брендового списку: `isActive`, pagination, sorting, active prices, images;
+- застосування правил брендового списку: `isActive`, pagination, sorting, variant prices, images;
 - повернення DTO/contract shape, який описує сторінку продуктів бренду.
 
 Очікувані методи:
@@ -135,15 +135,15 @@ packages/contracts/src/product/responses/brand-products.response.ts
 
 ## Naming conventions
 
-| Artifact | Pattern | Example |
-|----------|---------|---------|
+| Artifact                  | Pattern                                      | Example                                 |
+| ------------------------- | -------------------------------------------- | --------------------------------------- |
 | Controller method by slug | `findProductsBySlug` або `getProductsBySlug` | `CategoryController.findProductsBySlug` |
-| Service method by slug | `getProductsBySlug` | `CategoryService.getProductsBySlug` |
-| Service method by id | `getProductsById` | `BrandService.getProductsById` |
-| API DTO | `<Context>ProductsPageDto` | `CategoryProductsPageDto` |
-| Contract response schema | `<Context>ProductsResponseSchema` | `CategoryProductsResponseSchema` |
-| Contract response type | `<Context>ProductsPageType` | `CategoryProductsPageType` |
-| Response file | `<context>-products.response.ts` | `category-products.response.ts` |
+| Service method by slug    | `getProductsBySlug`                          | `CategoryService.getProductsBySlug`     |
+| Service method by id      | `getProductsById`                            | `BrandService.getProductsById`          |
+| API DTO                   | `<Context>ProductsPageDto`                   | `CategoryProductsPageDto`               |
+| Contract response schema  | `<Context>ProductsResponseSchema`            | `CategoryProductsResponseSchema`        |
+| Contract response type    | `<Context>ProductsPageType`                  | `CategoryProductsPageType`              |
+| Response file             | `<context>-products.response.ts`             | `category-products.response.ts`         |
 
 `Page` використовуємо для TypeScript type / DTO, бо відповідь містить pagination metadata.
 `ResponseSchema` використовуємо для Zod-схеми, бо вона описує HTTP response shape.
@@ -183,12 +183,16 @@ const skip = (safePage - 1) * safeLimit;
 Мінімальний стандарт:
 
 - тільки активні продукти: `isActive: true`;
-- активна ціна: `prices` з `activePriceFilter`, `take: 1`;
-- зображення відсортовані по `sortOrder`;
+- default-варіант повертається першим;
+- кожен варіант містить одну активну ціну з `take: 1`;
+- `product.images` містить спільні картинки, а `variant.images` — специфічні;
+- зображення відсортовані за `isPrimary` і `sortOrder`;
 - стабільне сортування продуктів, наприклад `orderBy: { name: 'asc' }`;
 - дати серіалізовані в ISO string, якщо contract очікує JSON string.
 
-Якщо однакова логіка mapping повторюється в `BrandService` і `CategoryService`, її можна винести в shared helper поруч із product module або common API utilities, але тільки після появи реального дублювання.
+Спільний Prisma include зберігається в
+`apps/api/src/common/prisma/product-catalog.include.ts`, щоб product, brand і
+category endpoint'и повертали однаковий contract shape.
 
 ## Swagger standard
 
