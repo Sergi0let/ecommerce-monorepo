@@ -535,8 +535,12 @@ async function main() {
         slug: p.slug,
         description: p.description,
         isActive: p.isActive,
-        brandId: p.brandId,
-        categoryId: getCategoryId(p.categorySlug),
+        brand: {
+          connect: { id: p.brandId },
+        },
+        category: {
+          connect: { id: getCategoryId(p.categorySlug) },
+        },
         variants: {
           create: {
             slug: variantSlug,
@@ -555,13 +559,6 @@ async function main() {
                 amountCents: p.priceCents,
                 currency: 'UAH',
                 isValidFrom: new Date(),
-              },
-            },
-            inventory: {
-              create: {
-                warehouseId: defaultWarehouse.id,
-                quantity: 100,
-                reserved: 0,
               },
             },
           },
@@ -583,7 +580,31 @@ async function main() {
           ],
         },
       },
+      include: {
+        variants: true,
+      },
     })
+
+    const variant = product.variants[0]!
+
+    const inventory = await prisma.inventory.create({
+      data: {
+        variantId: variant.id,
+        warehouseId: defaultWarehouse.id,
+        quantity: 100,
+        reserved: 0,
+      },
+    })
+
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        inventory: {
+          connect: { id: inventory.id },
+        },
+      },
+    })
+
     console.log(`   ✓ ${product.name}`)
   }
 

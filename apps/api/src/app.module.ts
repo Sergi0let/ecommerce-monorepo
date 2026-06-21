@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { ProductImagesModule } from './modules/product-images/product-images.module';
 import { ProductPriceModule } from './modules/product-price/product-price.module';
 import { ProductVariantModule } from './modules/product-variant/product-variant.module';
@@ -33,6 +34,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ProductVariantModule,
     ProductPriceModule,
     ProductImagesModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [
