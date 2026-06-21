@@ -45,6 +45,11 @@
       "import": "./dist/product-price/index.js",
       "default": "./dist/product-price/index.js"
     },
+    "./product-images": {
+      "types": "./src/product-images/index.ts",
+      "import": "./dist/product-images/index.js",
+      "default": "./dist/product-images/index.js"
+    },
     "./common": {
       "types": "./src/common/index.ts",
       "import": "./dist/common/index.js",
