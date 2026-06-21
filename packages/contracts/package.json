@@ -50,6 +50,11 @@
       "import": "./dist/product-images/index.js",
       "default": "./dist/product-images/index.js"
     },
+    "./inventory": {
+      "types": "./src/inventory/index.ts",
+      "import": "./dist/inventory/index.js",
+      "default": "./dist/inventory/index.js"
+    },
     "./common": {
       "types": "./src/common/index.ts",
       "import": "./dist/common/index.js",
