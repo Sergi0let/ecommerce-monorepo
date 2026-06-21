@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 import { TimestampSchema, UuidSchema } from '../../common/primitives.js';
 import { ProductVariantSchema } from '../../product-variant/index.js';
+import { PriceSchema } from './price.schema.js';
+
+const ProductVariantWithPricesSchema = ProductVariantSchema.extend({
+  prices: z.array(PriceSchema),
+});
 
 export const ProductCoreSchema = z.object({
   id: UuidSchema,
@@ -17,7 +22,7 @@ export const ProductCoreSchema = z.object({
   ratingAvg: z.number().nullable(),
   ratingCount: z.number().int(),
   brandId: UuidSchema,
-  variants: ProductVariantSchema,
+  variants: z.array(ProductVariantWithPricesSchema),
   categoryId: UuidSchema.nullable(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,

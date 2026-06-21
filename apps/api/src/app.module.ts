@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
+import { ProductPriceModule } from './modules/product-price/product-price.module';
 import { ProductVariantModule } from './modules/product-variant/product-variant.module';
 import { ProductModule } from './modules/product/product.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
@@ -29,6 +30,7 @@ import { PrismaModule } from './prisma/prisma.module';
     CategoryModule,
     ProductModule,
     ProductVariantModule,
+    ProductPriceModule,
   ],
   controllers: [AppController],
   providers: [

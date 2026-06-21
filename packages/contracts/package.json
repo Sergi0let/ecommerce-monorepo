@@ -40,6 +40,11 @@
       "import": "./dist/product-variant/index.js",
       "default": "./dist/product-variant/index.js"
     },
+    "./product-price": {
+      "types": "./src/product-price/index.ts",
+      "import": "./dist/product-price/index.js",
+      "default": "./dist/product-price/index.js"
+    },
     "./common": {
       "types": "./src/common/index.ts",
       "import": "./dist/common/index.js",

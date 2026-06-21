@@ -11,12 +11,16 @@ import { UpdateProductDto } from './dto/update-product.dto';
 
 const getProductRelationsInclude = () => {
   const now = new Date();
+  const activePriceWhere = {
+    OR: [{ isValidFrom: null }, { isValidFrom: { lte: now } }],
+    AND: [{ OR: [{ isValidTo: null }, { isValidTo: { gte: now } }] }],
+  };
 
   return {
     prices: {
       where: {
-        OR: [{ isValidFrom: null }, { isValidFrom: { lte: now } }],
-        AND: [{ OR: [{ isValidTo: null }, { isValidTo: { gte: now } }] }],
+        ...activePriceWhere,
+        variantId: null,
       },
       orderBy: { isValidFrom: 'desc' as const },
       take: 1,
@@ -24,7 +28,15 @@ const getProductRelationsInclude = () => {
     images: {
       orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }],
     },
-    variants: true,
+    variants: {
+      include: {
+        prices: {
+          where: activePriceWhere,
+          orderBy: { isValidFrom: 'desc' as const },
+          take: 1,
+        },
+      },
+    },
   };
 };
 
