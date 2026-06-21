@@ -6,11 +6,11 @@
 
 ## Навіщо це
 
-| Проблема без contracts | Рішення |
-|------------------------|---------|
-| Дублювання правил у class-validator і Zod | Одна схема в `contracts` |
-| API і web розходяться в типах | Спільний пакет у monorepo |
-| Незрозуміло, де живе «форма відповіді» | Чіткі шари: `schemas` → `views` → `responses` |
+| Проблема без contracts                    | Рішення                                       |
+| ----------------------------------------- | --------------------------------------------- |
+| Дублювання правил у class-validator і Zod | Одна схема в `contracts`                      |
+| API і web розходяться в типах             | Спільний пакет у monorepo                     |
+| Незрозуміло, де живе «форма відповіді»    | Чіткі шари: `schemas` → `views` → `responses` |
 
 ## Структура пакета
 
@@ -39,6 +39,7 @@ domain/
 ```
 
 #### example on brands
+
 ```
 brand/
 ├── inputs/
@@ -66,44 +67,44 @@ brand/
 
 ### Призначення шарів
 
-| Шар | Що описує | Приклад |
-|-----|-----------|---------|
-| `schemas/` | Сутність як у Prisma, без контексту endpoint | `BrandSchema`, `ProductCoreSchema`, `CategorySchema` |
-| `inputs/` | Вхідні дані (POST/PUT body) | `CreateBrandSchema`, `UpdateBrandSchema` |
-| `views/` | «Як виглядає сутність у певному контексті» | `ProductWithPricesSchema`, `ProductListItemSchema` |
-| `responses/` | Те, що реально повертає endpoint | `BrandDetailSchema`, `BrandBySlugSchema`, `BrandProductsResponseSchema` |
-| `types/` | TS-типи зі схем | `BrandType`, `ProductListItemType` |
+| Шар          | Що описує                                    | Приклад                                                                 |
+| ------------ | -------------------------------------------- | ----------------------------------------------------------------------- |
+| `schemas/`   | Сутність як у Prisma, без контексту endpoint | `BrandSchema`, `ProductCoreSchema`, `CategorySchema`                    |
+| `inputs/`    | Вхідні дані (POST/PUT body)                  | `CreateBrandSchema`, `UpdateBrandSchema`                                |
+| `views/`     | «Як виглядає сутність у певному контексті»   | `ProductVariantDetailsSchema`, `ProductListItemSchema`                  |
+| `responses/` | Те, що реально повертає endpoint             | `BrandDetailSchema`, `BrandBySlugSchema`, `BrandProductsResponseSchema` |
+| `types/`     | TS-типи зі схем                              | `BrandType`, `ProductListItemType`                                      |
 
 ### Ланцюжок композиції (product)
 
 ```
 ProductCoreSchema
-  └── ProductWithPricesSchema      (+ prices)     → slug-сторінка бренду
-        └── ProductListItemSchema  (+ images)     → список / пагінація
-              └── BrandProductsResponseSchema      (+ page, total, …)
+  └── ProductListItemSchema        (+ shared images, variants)
+        └── ProductVariantDetailsSchema (+ prices, variant images)
+              └── BrandProductsResponseSchema (+ page, total, …)
 ```
 
 ## Поточні домени
 
 ### `brand/`
 
-| Схема | Де використовується |
-|-------|---------------------|
-| `CreateBrandSchema` / `UpdateBrandSchema` | POST/PUT `/brands` |
-| `BrandSchema` | базова відповідь бренду |
-| `BrandWithCountsSchema` | GET `/brands` |
-| `BrandSummarySchema` | GET `/brands/list` |
-| `BrandDetailSchema` | GET `/brands/:id` |
-| `BrandBySlugSchema` | GET `/brands/slug/:slug` |
+| Схема                                     | Де використовується      |
+| ----------------------------------------- | ------------------------ |
+| `CreateBrandSchema` / `UpdateBrandSchema` | POST/PUT `/brands`       |
+| `BrandSchema`                             | базова відповідь бренду  |
+| `BrandWithCountsSchema`                   | GET `/brands`            |
+| `BrandSummarySchema`                      | GET `/brands/list`       |
+| `BrandDetailSchema`                       | GET `/brands/:id`        |
+| `BrandBySlugSchema`                       | GET `/brands/slug/:slug` |
 
 ### `product/`
 
-| Схема | Де використовується |
-|-------|---------------------|
-| `ProductCoreSchema`, `PriceSchema`, `ProductImageSchema` | атоми |
-| `ProductWithPricesSchema` | продукти на slug-сторінці |
-| `ProductListItemSchema` | елемент пагінованого списку |
-| `BrandProductsResponseSchema` | GET `/brands/:id/products` |
+| Схема                                                    | Де використовується                         |
+| -------------------------------------------------------- | ------------------------------------------- |
+| `ProductCoreSchema`, `PriceSchema`, `ProductImageSchema` | атоми                                       |
+| `ProductVariantDetailsSchema`                            | варіант з активною ціною та власними images |
+| `ProductListItemSchema`                                  | продукт зі спільними images та варіантами   |
+| `BrandProductsResponseSchema`                            | GET `/brands/:id/products`                  |
 
 ### `category/`
 
@@ -115,9 +116,9 @@ ProductCoreSchema
 2. **Між доменами імпортувати через `index.ts`**, не deep path:
    ```ts
    // ✅
-   import { CategorySchema } from '../../category/index.js';
+   import { CategorySchema } from "../../category/index.js";
    // ❌
-   import { CategorySchema } from '../../category/schemas/category.schema.js';
+   import { CategorySchema } from "../../category/schemas/category.schema.js";
    ```
 3. **Response-схема = те, що повертає service** (включно з `include` / `select` Prisma).
 4. **Дати в JSON** — `z.iso.datetime()`, не `z.date()` (OpenAPI / JSON Schema).
@@ -135,11 +136,11 @@ ProductCoreSchema
 
 ```ts
 // усе з домену
-import { BrandBySlugSchema, type BrandSummaryType } from '@repo/contracts';
+import { BrandBySlugSchema, type BrandSummaryType } from "@repo/contracts";
 
 // subpath (опційно)
-import { safeParseSchema } from '@repo/contracts/common';
-import { ProductListItemSchema } from '@repo/contracts/product';
+import { safeParseSchema } from "@repo/contracts/common";
+import { ProductListItemSchema } from "@repo/contracts/product";
 ```
 
 ## Додавання нового домену
@@ -152,9 +153,9 @@ import { ProductListItemSchema } from '@repo/contracts/product';
 
 ## Іменування
 
-| Артефакт | Конвенція | Приклад |
-|----------|-----------|---------|
-| Zod-схема | `PascalCase` + `Schema` | `BrandDetailSchema` |
-| TS-тип | `PascalCase` + `Type` | `BrandDetailType` |
-| Input-тип | `…InputType` для `z.input` | `CreateBrandInputType` |
-| Response-файл | `<name>.response.ts` | `brand-detail.response.ts` |
+| Артефакт      | Конвенція                  | Приклад                    |
+| ------------- | -------------------------- | -------------------------- |
+| Zod-схема     | `PascalCase` + `Schema`    | `BrandDetailSchema`        |
+| TS-тип        | `PascalCase` + `Type`      | `BrandDetailType`          |
+| Input-тип     | `…InputType` для `z.input` | `CreateBrandInputType`     |
+| Response-файл | `<name>.response.ts`       | `brand-detail.response.ts` |

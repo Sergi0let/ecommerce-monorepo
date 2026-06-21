@@ -522,28 +522,48 @@ async function main() {
   console.log('🏭 Створюю товари...')
 
   for (const p of productsData) {
+    const variantSuffix = p.volumeMl
+      ? `${p.volumeMl}ml`
+      : p.weightG
+        ? `${p.weightG}g`
+        : 'default'
+    const variantSlug = `${p.slug}-${variantSuffix}`
+
     const product = await prisma.product.create({
       data: {
         name: p.name,
         slug: p.slug,
         description: p.description,
-        volumeMl: p.volumeMl,
-        weightG: p.weightG,
         isActive: p.isActive,
         brandId: p.brandId,
         categoryId: getCategoryId(p.categorySlug),
-        prices: {
+        variants: {
           create: {
-            amountCents: p.priceCents,
-            currency: 'UAH',
-            isValidFrom: new Date(),
-          },
-        },
-        inventory: {
-          create: {
-            warehouseId: defaultWarehouse.id,
-            quantity: 100,
-            reserved: 0,
+            slug: variantSlug,
+            sku: variantSlug.toUpperCase(),
+            name: p.volumeMl
+              ? `${p.volumeMl} ml`
+              : p.weightG
+                ? `${p.weightG} g`
+                : 'Default',
+            volumeMl: p.volumeMl,
+            weightG: p.weightG,
+            isDefault: true,
+            isActive: p.isActive,
+            prices: {
+              create: {
+                amountCents: p.priceCents,
+                currency: 'UAH',
+                isValidFrom: new Date(),
+              },
+            },
+            inventory: {
+              create: {
+                warehouseId: defaultWarehouse.id,
+                quantity: 100,
+                reserved: 0,
+              },
+            },
           },
         },
         images: {

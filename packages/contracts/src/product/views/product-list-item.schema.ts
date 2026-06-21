@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
-import { ProductImageSchema } from '../schemas/index.js';
-import { ProductWithPricesSchema } from './product-with-prices.schema.js';
+import { ProductCoreSchema, ProductImageSchema } from '../schemas/index.js';
+import { ProductVariantDetailsSchema } from './product-variant-details.schema.js';
 
-/** Paginated product list — prices + images */
-export const ProductListItemSchema = ProductWithPricesSchema.extend({
+/** Product aggregate used by product detail and catalog endpoints. */
+export const ProductListItemSchema = ProductCoreSchema.extend({
   images: z.array(ProductImageSchema),
+  variants: z.array(ProductVariantDetailsSchema),
 });

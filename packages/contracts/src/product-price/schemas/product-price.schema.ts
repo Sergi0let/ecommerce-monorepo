@@ -3,8 +3,7 @@ import { TimestampSchema, UuidSchema } from '../../common/primitives.js';
 
 export const ProductPriceSchema = z.object({
   id: UuidSchema,
-  productId: UuidSchema,
-  variantId: UuidSchema.nullable(),
+  variantId: UuidSchema,
   currency: z.string(),
   amountCents: z.number().int(),
   costCents: z.number().int().nullable(),

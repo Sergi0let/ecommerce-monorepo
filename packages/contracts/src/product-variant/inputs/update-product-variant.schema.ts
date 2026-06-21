@@ -1,3 +1,7 @@
-import { CreateProductVariantSchema } from './create-product-variant.schema.js';
+import { z } from 'zod';
+import { ProductVariantInputBaseSchema } from './create-product-variant.schema.js';
 
-export const UpdateProductVariantSchema = CreateProductVariantSchema.partial();
+export const UpdateProductVariantSchema =
+  ProductVariantInputBaseSchema.partial().extend({
+    isDefault: z.boolean().optional(),
+  });

@@ -1,6 +1,6 @@
-import { ProductPriceInputBaseSchema } from './create-product-price.schema.js';
+import { ProductPriceValueInputSchema } from './create-product-price.schema.js';
 
-export const UpdateProductPriceSchema = ProductPriceInputBaseSchema.partial()
+export const UpdateProductPriceSchema = ProductPriceValueInputSchema.partial()
   .refine(
     (data) =>
       data.compareAtCents == null ||

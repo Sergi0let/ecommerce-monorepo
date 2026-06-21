@@ -6,16 +6,12 @@ import {
 } from '@nestjs/common';
 
 import { BrandSummariesPageType } from '@repo/contracts';
+import { getProductCatalogInclude } from '../../common/prisma/product-catalog.include';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandsQueryDto } from './dto/brands-query.dto';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
-
-const activePriceFilter = {
-  isValidFrom: { lte: new Date() },
-  OR: [{ isValidTo: null }, { isValidTo: { gte: new Date() } }],
-};
 
 @Injectable()
 export class BrandService {
@@ -191,10 +187,8 @@ export class BrandService {
         where,
         skip,
         take: safeLimit,
-        include: {
-          prices: { where: activePriceFilter, take: 1 },
-          images: { orderBy: { sortOrder: sort } },
-        },
+        orderBy: { createdAt: sort },
+        include: getProductCatalogInclude(),
       }),
       this.prisma.client.product.count({ where }),
     ]);

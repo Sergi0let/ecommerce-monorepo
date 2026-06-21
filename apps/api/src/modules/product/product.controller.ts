@@ -31,11 +31,11 @@ export class ProductController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a single product' })
+  @ApiOperation({ summary: 'Create a product with its initial variant' })
   @ApiResponse({ status: 201, type: ProductDto })
   @ApiResponse({
     status: 409,
-    description: 'Product variant exist with this SKU',
+    description: 'Product or variant slug, or variant SKU already exists',
   })
   create(@Body() data: CreateProductDto) {
     return this.productService.create(data);
@@ -76,6 +76,15 @@ export class ProductController {
   @ApiResponse({ status: 404, description: 'Product by ID not found' })
   getById(@Param('id') id: string) {
     return this.productService.getById(id);
+  }
+
+  @Get('by-variant/:variantSlug')
+  @ApiOperation({ summary: 'Get product by globally unique variant slug' })
+  @ApiParam({ name: 'variantSlug', type: String, required: true })
+  @ApiResponse({ status: 200, type: ProductDto })
+  @ApiResponse({ status: 404, description: 'Product variant not found' })
+  getByVariantSlug(@Param('variantSlug') variantSlug: string) {
+    return this.productService.getByVariantSlug(variantSlug);
   }
 
   @Get(':slug')

@@ -1,10 +1,11 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 
@@ -19,17 +20,27 @@ export class ProductVariantService {
 
     await this.assertProductExistsById(data.productId);
     await this.assertSkuAvailable(data.sku);
+    await this.assertSlugAvailable(data.slug);
 
-    return this.prisma.client.productVariant.create({
-      data: {
-        sku: data.sku,
-        name: data.name,
-        volumeMl: data.volumeMl,
-        weightG: data.weightG,
-        isActive: data.isActive,
-        productId: data.productId,
-      },
+    const variantsCount = await this.prisma.client.productVariant.count({
+      where: { productId: data.productId },
     });
+    const shouldBeDefault = data.isDefault || variantsCount === 0;
+
+    if (shouldBeDefault) {
+      return this.prisma.client.$transaction(async (transaction) => {
+        await transaction.productVariant.updateMany({
+          where: { productId: data.productId, isDefault: true },
+          data: { isDefault: false },
+        });
+
+        return transaction.productVariant.create({
+          data: { ...data, isDefault: true },
+        });
+      });
+    }
+
+    return this.prisma.client.productVariant.create({ data });
   }
 
   async updateById(id: string, data: UpdateProductVariantDto) {
@@ -37,14 +48,34 @@ export class ProductVariantService {
       `Updating product variant ${id} with data ${JSON.stringify(data)}`,
     );
 
-    await this.assertProductVariantExistsById(id);
-
-    if (data.productId) {
-      await this.assertProductExistsById(data.productId);
-    }
+    const variant = await this.getById(id);
 
     if (data.sku) {
       await this.assertSkuAvailable(data.sku, id);
+    }
+
+    if (data.slug) {
+      await this.assertSlugAvailable(data.slug, id);
+    }
+
+    if (data.isDefault === false && variant.isDefault) {
+      throw new BadRequestException(
+        'Set another variant as default before unsetting the current default',
+      );
+    }
+
+    if (data.isDefault === true && !variant.isDefault) {
+      return this.prisma.client.$transaction(async (transaction) => {
+        await transaction.productVariant.updateMany({
+          where: { productId: variant.productId, isDefault: true },
+          data: { isDefault: false },
+        });
+
+        return transaction.productVariant.update({
+          where: { id },
+          data,
+        });
+      });
     }
 
     return this.prisma.client.productVariant.update({
@@ -56,9 +87,30 @@ export class ProductVariantService {
   async delete(id: string) {
     this.logger.log(`Deleting Product Variant ${id}`);
 
-    await this.assertProductVariantExistsById(id);
+    const variant = await this.getById(id);
+    const replacement = await this.prisma.client.productVariant.findFirst({
+      where: { productId: variant.productId, id: { not: id } },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    return this.prisma.client.productVariant.delete({ where: { id } });
+    if (!replacement) {
+      throw new ConflictException('Cannot delete the last product variant');
+    }
+
+    return this.prisma.client.$transaction(async (transaction) => {
+      const deletedVariant = await transaction.productVariant.delete({
+        where: { id },
+      });
+
+      if (variant.isDefault) {
+        await transaction.productVariant.update({
+          where: { id: replacement.id },
+          data: { isDefault: true },
+        });
+      }
+
+      return deletedVariant;
+    });
   }
 
   async getById(id: string) {
@@ -77,25 +129,9 @@ export class ProductVariantService {
     await this.assertProductExistsBySlug(slug);
 
     return this.prisma.client.productVariant.findMany({
-      where: {
-        product: {
-          slug,
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      where: { product: { slug } },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
     });
-  }
-
-  private async assertProductVariantExistsById(id: string) {
-    const productVariant = await this.prisma.client.productVariant.findUnique({
-      where: { id },
-    });
-
-    if (!productVariant) {
-      throw new NotFoundException(`Product variant with ID ${id} not found`);
-    }
   }
 
   private async assertSkuAvailable(sku: string, excludeId?: string) {
@@ -109,6 +145,19 @@ export class ProductVariantService {
       );
     }
   }
+
+  private async assertSlugAvailable(slug: string, excludeId?: string) {
+    const productVariant = await this.prisma.client.productVariant.findUnique({
+      where: { slug },
+    });
+
+    if (productVariant && productVariant.id !== excludeId) {
+      throw new ConflictException(
+        `Product variant with slug "${slug}" already exists`,
+      );
+    }
+  }
+
   private async assertProductExistsById(id: string) {
     const product = await this.prisma.client.product.findUnique({
       where: { id },

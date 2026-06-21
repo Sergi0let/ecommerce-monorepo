@@ -4,41 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { getProductCatalogInclude } from '../../common/prisma/product-catalog.include';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductsQueryDto } from './dto/products-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-
-const getProductRelationsInclude = () => {
-  const now = new Date();
-  const activePriceWhere = {
-    OR: [{ isValidFrom: null }, { isValidFrom: { lte: now } }],
-    AND: [{ OR: [{ isValidTo: null }, { isValidTo: { gte: now } }] }],
-  };
-
-  return {
-    prices: {
-      where: {
-        ...activePriceWhere,
-        variantId: null,
-      },
-      orderBy: { isValidFrom: 'desc' as const },
-      take: 1,
-    },
-    images: {
-      orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }],
-    },
-    variants: {
-      include: {
-        prices: {
-          where: activePriceWhere,
-          orderBy: { isValidFrom: 'desc' as const },
-          take: 1,
-        },
-      },
-    },
-  };
-};
 
 @Injectable()
 export class ProductService {
@@ -51,20 +21,26 @@ export class ProductService {
     await this.assertBrandExists(data.brandId);
     await this.assertCategoryExists(data.categoryId);
     await this.assertSlugAvailable(data.slug);
+    await this.assertVariantSlugAvailable(data.initialVariant.slug);
+    await this.assertVariantSkuAvailable(data.initialVariant.sku);
 
     return this.prisma.client.product.create({
-      include: getProductRelationsInclude(),
+      include: getProductCatalogInclude(),
       data: {
         name: data.name,
         slug: data.slug,
         description: data.description,
-        volumeMl: data.volumeMl,
-        weightG: data.weightG,
         isActive: data.isActive,
         brandId: data.brandId,
         categoryId: data.categoryId ?? null,
         metaTitle: data.metaTitle,
         metaDescription: data.metaDescription,
+        variants: {
+          create: {
+            ...data.initialVariant,
+            isDefault: true,
+          },
+        },
       },
     });
   }
@@ -90,7 +66,7 @@ export class ProductService {
 
     return this.prisma.client.product.update({
       where: { id },
-      include: getProductRelationsInclude(),
+      include: getProductCatalogInclude(),
       data,
     });
   }
@@ -116,7 +92,7 @@ export class ProductService {
         skip,
         take: safeLimit,
         orderBy: { createdAt: sort },
-        include: getProductRelationsInclude(),
+        include: getProductCatalogInclude(),
       }),
       this.prisma.client.product.count({ where }),
     ]).then(([products, total]) => ({
@@ -131,7 +107,7 @@ export class ProductService {
   async getById(id: string) {
     const product = await this.prisma.client.product.findUnique({
       where: { id },
-      include: getProductRelationsInclude(),
+      include: getProductCatalogInclude(),
     });
 
     if (!product) {
@@ -144,7 +120,7 @@ export class ProductService {
   async getBySlug(slug: string) {
     const product = await this.prisma.client.product.findUnique({
       where: { slug },
-      include: getProductRelationsInclude(),
+      include: getProductCatalogInclude(),
     });
 
     if (!product) {
@@ -152,6 +128,21 @@ export class ProductService {
     }
 
     return product;
+  }
+
+  async getByVariantSlug(variantSlug: string) {
+    const variant = await this.prisma.client.productVariant.findUnique({
+      where: { slug: variantSlug },
+      select: { productId: true },
+    });
+
+    if (!variant) {
+      throw new NotFoundException(
+        `Product variant with slug ${variantSlug} not found`,
+      );
+    }
+
+    return this.getById(variant.productId);
   }
 
   private async assertBrandExists(brandId: string) {
@@ -185,6 +176,32 @@ export class ProductService {
 
     if (existing && existing.id !== excludeId) {
       throw new ConflictException(`Product with slug "${slug}" already exists`);
+    }
+  }
+
+  private async assertVariantSlugAvailable(slug: string) {
+    const variant = await this.prisma.client.productVariant.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    if (variant) {
+      throw new ConflictException(
+        `Product variant with slug "${slug}" already exists`,
+      );
+    }
+  }
+
+  private async assertVariantSkuAvailable(sku: string) {
+    const variant = await this.prisma.client.productVariant.findUnique({
+      where: { sku },
+      select: { id: true },
+    });
+
+    if (variant) {
+      throw new ConflictException(
+        `Product variant with SKU "${sku}" already exists`,
+      );
     }
   }
 }

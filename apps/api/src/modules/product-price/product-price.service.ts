@@ -15,17 +15,12 @@ export class ProductPriceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: CreateProductPriceDto) {
-    this.logger.log(`Creating product price for product ${data.productId}`);
+    this.logger.log(`Creating product price for variant ${data.variantId}`);
 
-    await this.assertProductExists(data.productId);
-
-    if (data.variantId) {
-      await this.assertVariantBelongsToProduct(data.variantId, data.productId);
-    }
+    await this.assertVariantExists(data.variantId);
 
     return this.prisma.client.price.create({
       data: {
-        productId: data.productId,
         variantId: data.variantId,
         currency: data.currency,
         amountCents: data.amountCents,
@@ -43,25 +38,11 @@ export class ProductPriceService {
     );
 
     const productPrice = await this.getById(id);
-    const productId = data.productId ?? productPrice.productId;
-    const variantId =
-      data.variantId === undefined ? productPrice.variantId : data.variantId;
-
-    if (data.productId) {
-      await this.assertProductExists(data.productId);
-    }
-
-    if (variantId) {
-      await this.assertVariantBelongsToProduct(variantId, productId);
-    }
-
     this.assertValidPriceUpdate(productPrice, data);
 
     return this.prisma.client.price.update({
       where: { id },
       data: {
-        productId: data.productId,
-        variantId: data.variantId,
         currency: data.currency,
         amountCents: data.amountCents,
         costCents: data.costCents,
@@ -98,33 +79,15 @@ export class ProductPriceService {
     return productPrice;
   }
 
-  private async assertProductExists(productId: string) {
-    const product = await this.prisma.client.product.findUnique({
-      where: { id: productId },
-    });
-
-    if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
-    }
-  }
-
-  private async assertVariantBelongsToProduct(
-    variantId: string,
-    productId: string,
-  ) {
+  private async assertVariantExists(variantId: string) {
     const variant = await this.prisma.client.productVariant.findUnique({
       where: { id: variantId },
+      select: { id: true },
     });
 
     if (!variant) {
       throw new NotFoundException(
         `Product variant with ID ${variantId} not found`,
-      );
-    }
-
-    if (variant.productId !== productId) {
-      throw new BadRequestException(
-        `Product variant ${variantId} does not belong to product ${productId}`,
       );
     }
   }
