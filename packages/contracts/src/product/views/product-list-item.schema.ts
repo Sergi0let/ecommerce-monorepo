@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-import { ProductCoreSchema, ProductImageSchema } from '../schemas/index.js';
+import { ProductImageSchema } from '../../product-images/index.js';
+import { ProductCoreSchema } from '../schemas/index.js';
 import { ProductVariantDetailsSchema } from './product-variant-details.schema.js';
 
 /** Product aggregate used by product detail and catalog endpoints. */
