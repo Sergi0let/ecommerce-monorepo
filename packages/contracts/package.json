@@ -55,6 +55,11 @@
       "import": "./dist/inventory/index.js",
       "default": "./dist/inventory/index.js"
     },
+    "./ingredient": {
+      "types": "./src/ingredient/index.ts",
+      "import": "./dist/ingredient/index.js",
+      "default": "./dist/ingredient/index.js"
+    },
     "./common": {
       "types": "./src/common/index.ts",
       "import": "./dist/common/index.js",
