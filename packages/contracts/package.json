@@ -64,6 +64,11 @@
       "types": "./src/common/index.ts",
       "import": "./dist/common/index.js",
       "default": "./dist/common/index.js"
+    },
+    "./users": {
+      "types": "./src/users/index.ts",
+      "import": "./dist/users/index.js",
+      "default": "./dist/users/index.js"
     }
   },
   "dependencies": {
