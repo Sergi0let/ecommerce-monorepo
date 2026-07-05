@@ -1,6 +1,7 @@
 export * from './brand/index.js';
 export * from './category/index.js';
 export * from './common/index.js';
+export * from './ingredient/index.js';
 export * from './inventory/index.js';
 export * from './product-images/index.js';
 export * from './product-price/index.js';
