@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -10,6 +11,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
+  const configService = app.get(ConfigService);
 
   app.setGlobalPrefix('api');
 
@@ -17,6 +19,7 @@ async function bootstrap() {
     .setTitle('Market Cosmo API')
     .setDescription('Market Cosmo API description')
     .setVersion('1.0')
+    .addBearerAuth()
     .addTag('market-cosmo')
     .build();
 
@@ -35,6 +38,6 @@ async function bootstrap() {
       .map((origin) => origin.trim()),
   });
 
-  await app.listen(process.env.PORT ?? 3006);
+  await app.listen(configService.get('PORT') ?? 3006);
 }
 void bootstrap();

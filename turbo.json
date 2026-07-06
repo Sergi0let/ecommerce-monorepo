@@ -1,7 +1,7 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
-  "globalEnv": ["DATABASE_URL", "CORS_ORIGINS", "PORT", "NEXT_PUBLIC_API_URL"],
+  "globalEnv": ["DATABASE_URL", "CORS_ORIGINS", "PORT", "NEXT_PUBLIC_API_URL", "JWT_SECRET", "JWT_EXPIRES_IN"],
   "tasks": {
     "build": {
       "dependsOn": ["^build", "^db:generate"],

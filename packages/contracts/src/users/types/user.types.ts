@@ -15,6 +15,7 @@ import {
   UpdateUserSchema,
   VerifyEmailSchema,
 } from '../inputs/update-user.schema.js';
+import { AuthResponseSchema } from '../responses/auth.response.js';
 import {
   UserProvider,
   UserProviderEnum,
@@ -25,6 +26,7 @@ import {
 
 // User types
 export type UserType = z.infer<typeof UserSchema>;
+export type AuthResponseType = z.infer<typeof AuthResponseSchema>;
 export type UserRoleType = z.infer<typeof UserRoleEnum>;
 export type UserProviderType = z.infer<typeof UserProviderEnum>;
 
