@@ -1,0 +1,16 @@
+---
+description: Шари Zod-схем у @repo/contracts
+globs: packages/contracts/**
+alwaysApply: false
+---
+
+Деталі: [contracts-domain-system.md](mdc:docs/contracts-domain-system.md).
+
+Ланцюг шарів: `schemas/` → `inputs/` → `views/` → `responses/` → `types/`.
+
+- Валідація тільки в `@repo/contracts`, не дублюй у `apps/api`.
+- Між доменами імпортуй через `index.js`, не deep-path.
+- Дати в JSON — `z.iso.datetime()`; nullable з БД — `.nullable()`.
+- `inputs/` без серверних полів (`id`, `createdAt`, `productId`).
+- Новий домен → export у `src/index.ts` і `package.json` → `exports`.
+- Іменування: `PascalCase` + `Schema`/`Type`/`InputType`; файл `<name>.response.ts`.
