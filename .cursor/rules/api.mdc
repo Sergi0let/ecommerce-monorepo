@@ -1,0 +1,23 @@
+---
+description: NestJS-модулі, endpoint'и та доменні інваріанти в apps/api
+globs: apps/api/**
+alwaysApply: false
+---
+
+Деталі: [add-nestjs.md](mdc:docs/add-nestjs.md),
+[product-listing-guidelines.md](mdc:docs/product-listing-guidelines.md),
+[product-variants.md](mdc:docs/product-variants.md),
+[product-pricing.md](mdc:docs/product-pricing.md),
+[warehouse-domain.md](mdc:docs/warehouse-domain.md).
+
+Endpoint'и:
+- DTO = `createZodDto(<Schema>)` зі схеми `@repo/contracts`.
+- Кожен endpoint має `@ApiOperation` + `@ApiResponse`; захищені — `@UseGuards(JwtGuard)` + `@ApiBearerAuth()`.
+- Listing "по бренду/категорії" — у `BrandModule`/`CategoryModule`, не в `ProductModule`.
+- Storefront lookup по `slug`, адмін по `id` (`getProductsBySlug`/`getProductsById`); pagination — `PaginationDto`.
+
+Доменні інваріанти:
+- `ProductVariant` — єдина продавана сутність; ціна й inventory належать варіанту.
+- Inventory — унікальна пара `variantId + warehouseId`; доступно = `quantity - reserved`.
+- Продукт має ≥1 варіант і рівно один `isDefault`; `slug`/`sku` варіанта глобально унікальні.
+- `ProductImage.variantId = null` → спільне зображення продукту.

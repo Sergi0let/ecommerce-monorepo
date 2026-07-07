@@ -1,0 +1,16 @@
+---
+description: Загальні конвенції репозиторію market-cosmo (стек, команди, принципи)
+alwaysApply: true
+---
+
+Це Turborepo (pnpm workspaces): `apps/api` (NestJS, порт 3006), `apps/web`
+(Next.js, 3010), `packages/database` (Prisma), `packages/contracts` (Zod).
+
+Повні конвенції та карта документів — у [AGENTS.md](mdc:AGENTS.md). Деталі по
+темах живуть у `docs/*.md` — читай відповідний файл перед нетривіальною роботою.
+
+Принципи: точкові зміни, простота, наслідування локальних патернів. Після зміни
+коду запускай `pnpm --filter api check-types` (і `lint`/`build` за потреби);
+після зміни схем — спершу `pnpm --filter @repo/contracts build`.
+
+Коміти створюй лише на явний запит.
