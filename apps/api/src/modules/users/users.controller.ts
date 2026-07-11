@@ -12,16 +12,17 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCookieAuth,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
-import type { Request } from 'express';
 
 @ApiTags('Users')
 @Controller('users')
@@ -34,6 +35,7 @@ export class UsersController {
   @Get('me')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
+  @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Get current user profile' })
   @ApiResponse({ status: 200, description: 'User profile' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
