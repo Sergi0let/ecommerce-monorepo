@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
@@ -8,14 +9,15 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { AuthResponseType } from '@repo/contracts';
+import { AuthResponseType, SocialAuthType } from '@repo/contracts';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { SocialAuthDto } from './dto/social-auth.dto';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { RefreshRequestUser } from './strategies/jwt-refresh.strategy';
 
@@ -23,10 +25,17 @@ type RefreshRequest = Request & {
   user: RefreshRequestUser;
 };
 
+type GoogleRequest = Request & {
+  user: SocialAuthType;
+};
+
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -63,22 +72,26 @@ export class AuthController {
     };
   }
 
-  @Post('social')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login or register via social provider' })
-  @ApiResponse({ status: 200, type: AuthResponseDto })
-  @ApiResponse({ status: 401, description: 'Account is disabled' })
-  async socialLogin(
-    @Body() dto: SocialAuthDto,
-    @Res({ passthrough: true }) response: Response,
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Start Google OAuth login' })
+  @ApiResponse({ status: 302, description: 'Redirect to Google' })
+  google(): void {}
+
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Handle Google OAuth callback' })
+  @ApiResponse({ status: 302, description: 'Redirect to web application' })
+  @ApiResponse({ status: 401, description: 'Google authentication failed' })
+  async googleCallback(
+    @Req() request: GoogleRequest,
+    @Res() response: Response,
   ) {
-    const result = await this.authService.socialLogin(dto);
+    const result = await this.authService.socialLogin(request.user);
 
     this.setAuthCookies(response, result.accessToken, result.refreshToken);
-
-    return {
-      user: result.user,
-    };
+    const webUrl = this.configService.getOrThrow<string>('WEB_URL');
+    return response.redirect(new URL('/auth/callback', webUrl).toString());
   }
 
   @Post('refresh')

@@ -4,8 +4,10 @@ import { PassportModule } from '@nestjs/passport';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { JwtGuard } from './guards/jwt.guard';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -24,6 +26,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     JwtStrategy,
     JwtRefreshGuard,
     JwtRefreshStrategy,
+    GoogleAuthGuard,
+    GoogleStrategy,
   ],
   exports: [AuthService, JwtGuard],
 })
