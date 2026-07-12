@@ -1,6 +1,8 @@
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
@@ -10,14 +12,18 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
+  const configService = app.get(ConfigService);
 
+  app.use(cookieParser());
   app.setGlobalPrefix('api');
 
   const config = new DocumentBuilder()
     .setTitle('Market Cosmo API')
     .setDescription('Market Cosmo API description')
     .setVersion('1.0')
+    .addBearerAuth()
     .addTag('market-cosmo')
+    .addCookieAuth('access_token')
     .build();
 
   const rawDocument = SwaggerModule.createDocument(app, config);
@@ -33,8 +39,9 @@ async function bootstrap() {
     origin: (process.env.CORS_ORIGINS ?? 'http://localhost:3010')
       .split(',')
       .map((origin) => origin.trim()),
+    credentials: true,
   });
 
-  await app.listen(process.env.PORT ?? 3006);
+  await app.listen(configService.get('PORT') ?? 3006);
 }
 void bootstrap();

@@ -7,4 +7,5 @@ export * from './product-images/index.js';
 export * from './product-price/index.js';
 export * from './product-variant/index.js';
 export * from './product/index.js';
+export * from './users/index.js';
 export * from './warehouse/index.js';
