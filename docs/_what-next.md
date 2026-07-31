@@ -1,57 +1,45 @@
-Наступним я б не переходив одразу до нового великого модуля. Спочатку варто довести Auth/Users до завершеного й безпечного стану.
+# Що робити після базового Auth
 
-Рекомендований порядок:
+Не переходити одразу до великого нового модуля. Спочатку потрібно завершити
+Auth/Users security flows і зафіксувати їх тестами.
 
-1. Додати інтеграційні тести Auth.
-2. Реалізувати email verification і password reset.
-3. Додати RolesGuard для адміністративних endpoint-ів.
-4. Посилити production-конфігурацію.
-5. Після цього перейти до Product Images.
+## Поточний стан
 
-Найкращий наступний крок прямо зараз — auth e2e tests.
+Вже готово:
 
-## 1. Auth e2e tests
+- Auth e2e-набір для register, login, `/users/me`, refresh і logout;
+- refresh token rotation та відкликання сесії під час logout;
+- модель `PasswordResetToken` і Prisma migration;
+- `POST /api/auth/request-password-reset`;
+- `POST /api/auth/reset-password`;
+- password reset відкликає усі активні `RefreshSession` користувача.
 
-Зараз auth уже має достатньо функціональності, але автоматичних тестів практично немає. Треба покрити:
+У процесі:
 
-```text
-POST /auth/register
-POST /auth/login
-POST /auth/refresh
-POST /auth/logout
-GET  /users/me
-```
+- e2e-тести password reset;
+- тимчасова delivery reset URL через development log;
+- справжня відправка листів буде пізніше через `MailService` і email provider.
 
-Критичні сценарії:
+## 1. Завершити password reset
 
-- успішна реєстрація;
-- повторний email → `409`;
-- правильний login;
-- неправильний пароль → `401`;
-- disabled user → `401`;
-- access cookie дозволяє `/users/me`;
-- refresh створює нову пару токенів;
-- старий refresh token після rotation більше не працює;
-- logout встановлює `revokedAt`;
-- refresh після logout → `401`;
-- cookies мають правильні `httpOnly`, `path`, `sameSite`;
-- Google callback не тестувати через реальний Google — mock strategy/profile.
-
-Це зафіксує вже створену архітектуру перед наступними змінами.
-
-## 2. Завершити Users security flows
-
-Зараз ці endpoint-и фактично є заглушками:
+Маршрути належать `AuthModule`, бо користувач ще не авторизований:
 
 ```text
-POST /users/verify-email
-POST /users/request-password-reset
-POST /users/reset-password
+POST /api/auth/request-password-reset
+POST /api/auth/reset-password
 ```
 
-Особливо важлива проблема: `requestPasswordReset()` повертає `404`, якщо email не існує. Це дозволяє перевіряти, які email зареєстровані.
+### Request reset password
 
-Правильна відповідь завжди однакова:
+Запит приймає:
+
+```json
+{
+  "email": "alice@example.com"
+}
+```
+
+Незалежно від того, чи існує user, API завжди повертає:
 
 ```json
 {
@@ -59,132 +47,132 @@ POST /users/reset-password
 }
 ```
 
-Потрібні одноразові tokens:
+Це не дозволяє перевіряти, які email зареєстровані в системі.
+
+Для існуючого user:
 
 ```text
-EmailVerificationToken
-PasswordResetToken
+створити випадковий raw token
+→ зберегти тільки SHA-256 tokenHash у PasswordResetToken
+→ видалити старі невикористані reset tokens цього user
+→ створити один новий token з expiresAt
+→ надіслати reset URL у листі
 ```
 
-У БД зберігати:
+Raw token не можна повертати в HTTP-відповіді, зберігати в БД або логувати в
+production. Поки немає MailService, reset URL можна логувати лише в development.
 
-- `tokenHash`;
-- `userId`;
-- `expiresAt`;
-- `usedAt`;
-- `createdAt`.
+### Reset password
 
-Після password reset варто відкликати всі активні refresh sessions користувача.
+Frontend бере token із посилання в листі:
+
+```text
+http://localhost:3010/reset-password?token=<raw-token>
+```
+
+Після введення нового пароля надсилає:
+
+```json
+{
+  "token": "<raw-token>",
+  "newPassword": "NewPassword1"
+}
+```
+
+Backend:
+
+```text
+SHA-256(raw token)
+→ знайти tokenHash у БД
+→ перевірити usedAt = null і expiresAt > now
+→ перевірити, що пароль відрізняється від поточного
+→ оновити passwordHash
+→ поставити usedAt
+→ відкликати всі RefreshSession цього user
+```
+
+Оновлення пароля, використання token і відкликання сесій виконуються в одній
+Prisma transaction.
+
+### Обов'язкові e2e-тести
+
+У `apps/api/test/auth.e2e-spec.ts` додати сценарії:
+
+- request повертає однаковий `200` для існуючого й неіснуючого email;
+- request для існуючого user створює `PasswordResetToken` із `tokenHash`,
+  `usedAt: null` і майбутнім `expiresAt`;
+- другий request видаляє старий token та залишає тільки новий;
+- reset змінює пароль, позначає token використаним і відкликає refresh sessions;
+- використаний або протермінований token повертає `400`;
+- поточний пароль не можна використати як новий.
+
+Для ручного тестування міграцій test database дивись
+[`apps/api/test/test-register.md`](../apps/api/test/test-register.md).
+
+## 2. Email verification
+
+Після password reset реалізувати схожий flow:
+
+```text
+POST /api/auth/verify-email
+```
+
+Потрібні одноразовий token, `tokenHash`, `expiresAt`, `usedAt` і запис у БД.
+Після успішної перевірки встановлювати `user.isEmailVerified = true`.
 
 ## 3. RolesGuard
 
-У `User` уже є:
+У `User` уже є ролі `CUSTOMER`, `ADMIN`, `MANAGER`, але вони ще не обмежують
+доступ до адміністративних операцій.
 
-```text
-CUSTOMER
-ADMIN
-MANAGER
-```
+Потрібно додати `RolesGuard` і закрити ним mutation endpoint-и для продуктів,
+брендів, категорій, цін, варіантів і складів.
 
-Але роль із JWT поки ніде не обмежує доступ. Треба додати:
-
-```ts
-@Roles(UserRole.ADMIN, UserRole.MANAGER)
-@UseGuards(JwtGuard, RolesGuard)
-```
-
-Після цього захистити mutation endpoint-и:
-
-- створення/редагування продуктів;
-- brands/categories;
-- prices;
-- variants;
-- warehouse/inventory;
-- product images.
-
-Важливо: `JwtGuard` лише встановлює identity. `RolesGuard` відповідає за право виконувати адміністративну дію.
+Не додавати `GET /users` у password reset commit: список усіх користувачів —
+окрема admin-функція, яка потребує role-based захисту.
 
 ## 4. Production hardening
 
-Перед production необхідно:
+Перед production:
 
-- прибрати fallback `dev-access-secret-change-me`;
-- прибрати fallback `dev-refresh-secret-change-me`;
+- прибрати fallback JWT secrets;
 - додати централізовану env validation;
-- додати rate limit для register/login/refresh/reset-password;
-- додати cleanup прострочених `RefreshSession`;
-- після зміни пароля відкликати інші сесії;
-- перевірити CSRF-модель для deployment web/API;
-- додати обробку невдалого Google OAuth redirect;
-- перевірити race condition під час прив’язування `SocialAccount`.
-
-Також `GET /users/:id` зараз публічний і повертає повний `UserType`. Треба або закрити його роллю, або створити окремий обмежений public profile response.
+- додати rate limit для register, login, refresh і password reset;
+- підключити `MailService` та email provider;
+- очищати прострочені refresh/reset tokens;
+- перевірити CSRF-модель для web/API deployment;
+- обмежити або закрити публічний `GET /users/:id`.
 
 ## 5. Product Images
 
-Після завершення auth foundation — наступний продуктовий модуль за roadmap.
-
-Потрібно перевірити/реалізувати:
+Після завершення Auth foundation наступний великий модуль за roadmap:
 
 ```text
 upload
-→ перевірка MIME і розміру
+→ MIME / file-size validation
 → Sharp: EXIF removal, resize, WebP
 → thumbnail / medium / large
 → Cloudflare R2
-→ збереження лише URL у PostgreSQL
-→ ProductImage для product або variant
+→ зберігати в PostgreSQL лише URL
 ```
-
-При цьому:
 
 ```text
-variantId = null → спільне зображення Product
-variantId != null → зображення конкретного ProductVariant
+variantId = null     → спільне зображення Product
+variantId != null    → зображення конкретного ProductVariant
 ```
 
-Моя конкретна рекомендація: наступною задачею зробити e2e-набір для `register → login → me → refresh → logout`. Після нього — справжній password reset. Це найкраще зміцнить API перед розширенням каталогу.
-
-
-Не обов’язково тримати Google OAuth branch відкритою до завершення всього Auth.
-
-Якщо поточна гілка присвячена саме Google OAuth і вже:
-
-- проходить `check-types`;
-- проходить lint;
-- Google redirect та callback працюють;
-- створюється/знаходиться користувач;
-- встановлюються cookies;
-- створюється `RefreshSession`;
-- видалений небезпечний `POST /auth/social`;
-- секрети не потрапили в commit;
-
-то її варто закомітити й merge зараз:
-
-```text
-feat(api): add Google OAuth authentication
-```
----
-
-Наступні завдання краще виконувати окремими гілками:
-
-```text
-test/api-auth-flow
-feat/email-verification
-feat/password-reset
-feat/role-guards
-feat/product-image-upload
-```
-
-
-
-Перед merge я б лише запустив:
+## Перевірка перед комітом password reset
 
 ```bash
-pnpm --filter @repo/contracts build
+pnpm --filter @repo/database db:generate
 pnpm --filter api check-types
 pnpm --filter api lint
+pnpm --filter api test:e2e
 pnpm --filter api build
 ```
 
-Отже: якщо Google login проходить повний callback і ти вручну перевірив cookies та запис користувача/сесії в БД — цю branch уже можна merge.
+Коміт після завершення e2e-тестів:
+
+```text
+feat(api): implement password reset flow
+```
