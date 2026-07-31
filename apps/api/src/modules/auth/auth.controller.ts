@@ -17,6 +17,8 @@ import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 import { RefreshRequestUser } from './strategies/jwt-refresh.strategy';
@@ -48,7 +50,11 @@ export class AuthController {
   ) {
     const result = await this.authService.register(dto);
 
-    this.setAuthCookies(response, result.accessToken, result.refreshToken);
+    this.setAuthCookies({
+      response,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    });
 
     return {
       user: result.user,
@@ -66,7 +72,11 @@ export class AuthController {
   ): Promise<AuthResponseType> {
     const result = await this.authService.login(dto);
 
-    this.setAuthCookies(response, result.accessToken, result.refreshToken);
+    this.setAuthCookies({
+      response,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    });
     return {
       user: result.user,
     };
@@ -89,7 +99,11 @@ export class AuthController {
   ) {
     const result = await this.authService.socialLogin(request.user);
 
-    this.setAuthCookies(response, result.accessToken, result.refreshToken);
+    this.setAuthCookies({
+      response,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    });
     const webUrl = this.configService.getOrThrow<string>('WEB_URL');
     return response.redirect(new URL('/auth/callback', webUrl).toString());
   }
@@ -106,7 +120,11 @@ export class AuthController {
   ) {
     const result = await this.authService.refresh(request.user);
 
-    this.setAuthCookies(response, result.accessToken, result.refreshToken);
+    this.setAuthCookies({
+      response,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+    });
 
     return {
       user: result.user,
@@ -130,11 +148,37 @@ export class AuthController {
     this.clearAuthCookies(response);
   }
 
-  private setAuthCookies(
-    response: Response,
-    accessToken: string,
-    refreshToken: string,
-  ): void {
+  /**
+   * Reset password
+   */
+  @Post('request-password-reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset email' })
+  @ApiResponse({ status: 200, description: 'Reset email sent' })
+  async requestPasswordReset(
+    @Body() dto: RequestPasswordResetDto,
+  ): Promise<{ message: string }> {
+    return this.authService.requestPasswordReset(dto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Reset password with token' })
+  @ApiResponse({ status: 204, description: 'Password reset' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
+    return this.authService.resetPassword(dto);
+  }
+
+  private setAuthCookies({
+    response,
+    accessToken,
+    refreshToken,
+  }: {
+    response: Response;
+    accessToken: string;
+    refreshToken: string;
+  }): void {
     const isProduction = process.env.NODE_ENV === 'production';
 
     response.cookie('access_token', accessToken, {

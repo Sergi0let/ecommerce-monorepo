@@ -15,6 +15,129 @@ HTTP-запит
 
 Це не unit-тест одного методу. Ми запускаємо майже справжній NestJS-застосунок і надсилаємо йому HTTP-запити.
 
+## Test database і Prisma migrations
+
+### Навіщо окрема test database
+
+E2E-тести працюють зі справжньою PostgreSQL базою. Наприклад, перед кожним
+тестом `cleanAuthData()` видаляє користувачів і їхні сесії. Тому тести **ніколи
+не повинні використовувати development database**: інакше вони можуть видалити
+звичайні локальні дані.
+
+У `apps/api/.env` є окремий URL:
+
+```env
+TEST_DATABASE_URL="postgresql://.../market_cosmo_test"
+```
+
+Під час запуску `test:e2e` файл `test/setup-env.ts` бере цей URL і тимчасово
+призначає його в `DATABASE_URL`. Тому і NestJS, і Prisma у тесті працюють саме
+з `market_cosmo_test`, а не з development базою.
+
+### Коли потрібна migration
+
+Після зміни `packages/database/prisma/schema.prisma` потрібно зробити дві
+речі:
+
+1. Створити migration для нової структури БД.
+2. Застосувати готову migration і до test database.
+
+Наприклад, після додавання моделі `PasswordResetToken` код тесту може викликати:
+
+```ts
+prisma.passwordResetToken.create(...)
+```
+
+Якщо таблиці `PasswordResetToken` ще немає в test database, API поверне
+`500 Internal server error`, хоча TypeScript і збірка можуть бути успішними.
+
+### Покроковий процес
+
+#### 1. Змінити Prisma schema
+
+Наприклад, додати модель або поле в:
+
+```text
+packages/database/prisma/schema.prisma
+```
+
+#### 2. Створити migration для development database
+
+З кореня репозиторію:
+
+```bash
+pnpm --filter @repo/database db:migrate
+```
+
+Prisma попросить назву. Давай зрозумілу назву, наприклад:
+
+```text
+add_password_reset_tokens
+```
+
+Команда створює migration у `packages/database/prisma/migrations/` і застосовує
+її до локальної development database.
+
+#### 3. Згенерувати Prisma Client
+
+```bash
+pnpm --filter @repo/database db:generate
+```
+
+Після цього TypeScript знає про нову Prisma-модель, наприклад
+`prisma.passwordResetToken`.
+
+#### 4. Застосувати готові migrations до test database
+
+З кореня репозиторію завантажуємо `TEST_DATABASE_URL` з API env-файлу й
+тимчасово передаємо його Prisma як `DATABASE_URL`:
+
+```bash
+set -a
+. ./apps/api/.env
+set +a
+
+DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @repo/database db:deploy
+```
+
+Тут потрібен саме `db:deploy`, а не `db:migrate`:
+
+- `db:migrate` створює нову migration під час розробки;
+- `db:deploy` лише застосовує вже наявні migration-файли до потрібної БД.
+
+Це той самий принцип, який використовуватиме CI або production.
+
+#### 5. Запустити E2E-тести
+
+```bash
+pnpm --filter api test:e2e
+```
+
+### Перевірка статусу migrations у test database
+
+```bash
+set -a
+. ./apps/api/.env
+set +a
+
+DATABASE_URL="$TEST_DATABASE_URL" \
+  pnpm --filter @repo/database exec prisma migrate status
+```
+
+Очікуваний результат:
+
+```text
+Database schema is up to date!
+```
+
+### Типові проблеми
+
+| Симптом | Причина | Рішення |
+| --- | --- | --- |
+| `Internal server error` після додавання Prisma-моделі | У test database немає нової таблиці | Застосувати `db:deploy` із `DATABASE_URL="$TEST_DATABASE_URL"`. |
+| `Connection url is empty` | `TEST_DATABASE_URL` не завантажився в shell | Виконати `. ./apps/api/.env` між `set -a` і `set +a`. |
+| Тести працюють із development даними | Немає або неправильний `TEST_DATABASE_URL` | Перевірити `apps/api/.env`; test URL має вказувати на окрему БД, наприклад `market_cosmo_test`. |
+
 ## Імпорти
 
 ```ts

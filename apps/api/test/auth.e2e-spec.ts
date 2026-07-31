@@ -445,4 +445,121 @@ describe('Auth integration', () => {
       await agent.get('/api/users/me').expect(401);
     });
   });
+
+  describe('POST /api/auth/request-password-reset', () => {
+    const errorMessage = 'If the account exists, a reset email has been sent';
+
+    it('returns 200 and does not reveal if the email exists', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+
+      expect(response.body.message).toBe(errorMessage);
+
+      const response2 = await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: 'wrong@gmail.com' })
+        .expect(200);
+
+      expect(response2.body.message).toBe(errorMessage);
+      await expect(prisma.passwordResetToken.count()).resolves.toBe(1);
+    });
+
+    it('request create a token in db', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+
+      expect(response.body).toEqual({
+        message: errorMessage,
+      });
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+      });
+
+      const token = await prisma.passwordResetToken.findFirstOrThrow({
+        where: { userId: user.id },
+      });
+
+      expect(token.userId).toBe(user.id);
+      expect(token.usedAt).toBeNull();
+      expect(token.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      await expect(
+        prisma.passwordResetToken.count({
+          where: { userId: user.id },
+        }),
+      ).resolves.toBe(1);
+      expect(token.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('request create a token in db and delete old tokens', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      const response1 = await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+
+      expect(response1.body).toEqual({
+        message: errorMessage,
+      });
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+      });
+
+      const token1 = await prisma.passwordResetToken.findFirstOrThrow({
+        where: { userId: user.id },
+      });
+
+      expect(token1.userId).toBe(user.id);
+      expect(token1.usedAt).toBeNull();
+      expect(token1.expiresAt.getTime()).toBeGreaterThan(Date.now());
+
+      const response2 = await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+
+      expect(response2.body).toEqual({
+        message: errorMessage,
+      });
+
+      const token2 = await prisma.passwordResetToken.findFirstOrThrow({
+        where: { userId: user.id },
+      });
+
+      expect(token2.userId).toBe(user.id);
+      expect(token2.usedAt).toBeNull();
+      expect(token2.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(token2.id).not.toBe(token1.id);
+
+      await expect(
+        prisma.passwordResetToken.count({
+          where: { userId: user.id },
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        prisma.passwordResetToken.findUnique({
+          where: { id: token1.id },
+        }),
+      ).resolves.toBeNull();
+    });
+  });
 });

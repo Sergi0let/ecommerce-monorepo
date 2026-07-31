@@ -36,11 +36,26 @@ model User {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime?    @updatedAt
 
-  socialAccounts  SocialAccount[]
-  refreshSessions RefreshSession[]
+  socialAccounts      SocialAccount[]
+  refreshSessions     RefreshSession[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([email])
   @@index([role])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model RefreshSession {

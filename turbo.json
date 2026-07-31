@@ -12,36 +12,21 @@
   ],
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build",
-        "^db:generate"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        ".env*"
-      ],
-      "outputs": [
-        ".next/**",
-        "!.next/cache/**",
-        "dist/**"
-      ]
+      "dependsOn": ["^build", "^db:generate"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
     "lint": {
-      "dependsOn": [
-        "^lint"
-      ]
+      "dependsOn": ["^lint"]
+    },
+    "test:e2e": {
+      "dependsOn": ["^test:e2e", "^build"]
     },
     "check-types": {
-      "dependsOn": [
-        "^check-types",
-        "^build"
-      ]
+      "dependsOn": ["^check-types", "^build"]
     },
     "dev": {
-      "dependsOn": [
-        "^db:generate",
-        "^build"
-      ],
+      "dependsOn": ["^db:generate", "^build"],
       "cache": false,
       "persistent": true
     },

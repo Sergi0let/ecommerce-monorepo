@@ -1,10 +1,11 @@
-# Налаштування Prisma в Turborepo + pnpm workspaces
+# Налаштування Prisma в Turborepo + pnpm workspacesв
 
 Цей документ описує процес додавання Prisma ORM до monorepo на основі Turborepo та pnpm workspaces, включаючи проблеми з якими ми зіткнулися і їх рішення.
 
 ## Архітектура
 
 У нашому monorepo Prisma винесена в окремий пакет `@repo/database`, що дозволяє:
+
 - Централізовано управляти схемою БД
 - Переіспользувати Prisma Client у різних apps
 - Ізолювати БД-логіку від бізнес-логіки
@@ -59,6 +60,7 @@ packages/database/
 ```
 
 **Ключові моменти:**
+
 - `"type": "module"` — використовуємо ESM
 - Скрипти для роботи з Prisma (`db:generate`, `db:migrate`)
 - `exports` вказує на точку входу для споживачів
@@ -134,7 +136,7 @@ export default defineConfig({
 {
   "tasks": {
     "dev": {
-      "dependsOn": ["^db:generate"], 
+      "dependsOn": ["^db:generate"],
       "cache": false,
       "persistent": true
     },
@@ -143,13 +145,13 @@ export default defineConfig({
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
-    "db:generate": { 
+    "db:generate": {
       "cache": false
-    }, 
-    "db:migrate": { 
+    },
+    "db:migrate": {
       "cache": false
-    }, 
-    "db:deploy": { 
+    },
+    "db:deploy": {
       "cache": false
     }
   }
@@ -157,6 +159,7 @@ export default defineConfig({
 ```
 
 **Ключові моменти:**
+
 - `"dependsOn": ["^db:generate"]` — перед `dev`/`build` генеруємо Prisma Client
 - `"cache": false` для БД операцій — вони не кешуються
 
@@ -220,6 +223,7 @@ const products = await prisma.product.findMany();
 **Проблема:** TypeScript не знає про Node.js глобали (`process`, `Buffer`)
 
 **Рішення:**
+
 - Додати `@types/node` в `devDependencies`
 - Створити TypeScript конфіг для Node пакетів з `"types": ["node"]`
 - Налаштувати наслідування від цього конфігу
@@ -229,6 +233,7 @@ const products = await prisma.product.findMany();
 **Проблема:** Неправильний шлях до згенерованого Prisma Client
 
 **Рішення:**
+
 - Перевірити `output` у `schema.prisma`
 - Виправити import path: `../generated/prisma/client.js`
 - Додати `.js` extension для ESM
@@ -238,12 +243,13 @@ const products = await prisma.product.findMany();
 **Проблема:** Nest CLI видаляє `dist/` при старті, але TypeScript incremental cache (`tsbuildinfo`) залишається в корені проекту. TypeScript вважає що збірка актуальна і не генерує файли.
 
 **Рішення:**
+
 ```json
 // tsconfig.build.json
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"  // Кеш в dist/
+    "tsBuildInfoFile": "./dist/.tsbuildinfo" // Кеш в dist/
   }
 }
 ```
@@ -271,6 +277,7 @@ const products = await prisma.product.findMany();
 **Проблема:** Після змін у `schema.prisma` потрібно вручну регенерувати клієнт
 
 **Рішення:**
+
 - `turbo run db:generate` — регенерація для всіх пакетів
 - `pnpm --filter @repo/database db:generate` — тільки для database пакета
 - Turbo автоматично запускає generate при `dev`/`build` через `dependsOn`
