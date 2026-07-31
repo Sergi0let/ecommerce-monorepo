@@ -1,13 +1,21 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
   LoginLocalType,
   RegisterLocalType,
+  RequestPasswordResetType,
+  ResetPasswordType,
   SocialAuthType,
   UserType,
 } from '@repo/contracts';
-import { createHash, randomUUID } from 'node:crypto';
+import * as bcrypt from 'bcrypt';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { RefreshRequestUser } from './strategies/jwt-refresh.strategy';
@@ -25,6 +33,7 @@ interface AuthResult extends AuthTokens {
 }
 
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TOKEN_TTL = 15 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -161,6 +170,130 @@ export class AuthService {
       // - токена з неправильним підписом;
       // - уже видаленої сесії.
     }
+  }
+
+  async requestPasswordReset(
+    data: RequestPasswordResetType,
+  ): Promise<{ message: string }> {
+    const errorMessage = 'If the account exists, a reset email has been sent';
+    this.logger.log(`Password reset requested for email ${data.email}`);
+
+    const user = await this.usersService.findByEmail(data.email);
+
+    if (!user) {
+      return {
+        message: errorMessage,
+      };
+    }
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL);
+
+    await this.prismaService.client.$transaction(async (tx) => {
+      await tx.passwordResetToken.deleteMany({
+        where: {
+          userId: user.id,
+          usedAt: null,
+        },
+      });
+      await tx.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+        },
+      });
+    });
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.debug(
+        `Password reset URL: http://localhost:3010/reset-password?token=${rawToken}`,
+      );
+    }
+    return {
+      message: errorMessage,
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordType): Promise<void> {
+    this.logger.log('Resetting password with token');
+
+    const { token, newPassword } = dto;
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    const resetToken =
+      await this.prismaService.client.passwordResetToken.findFirst({
+        where: {
+          tokenHash,
+          usedAt: null,
+          expiresAt: {
+            gt: new Date(),
+          },
+        },
+        select: {
+          id: true,
+          userId: true,
+        },
+      });
+
+    if (!resetToken) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    const user = await this.prismaService.client.user.findUniqueOrThrow({
+      where: { id: resetToken.userId },
+      select: { passwordHash: true },
+    });
+
+    const isSamePassword =
+      user.passwordHash &&
+      (await bcrypt.compare(newPassword, user.passwordHash));
+
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'New password cannot be the same as the old password',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await this.prismaService.client.$transaction(async (tx) => {
+      const resetAt = new Date();
+
+      const consumedToken = await tx.passwordResetToken.updateMany({
+        where: {
+          id: resetToken.id,
+          usedAt: null,
+          expiresAt: {
+            gt: resetAt,
+          },
+        },
+        data: {
+          usedAt: resetAt,
+        },
+      });
+
+      if (consumedToken.count !== 1) {
+        throw new BadRequestException('Invalid or expired reset token');
+      }
+
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: { passwordHash },
+      });
+
+      await tx.refreshSession.updateMany({
+        where: {
+          userId: resetToken.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+    });
+
+    return;
   }
 
   private async buildAuthResult(user: UserType): Promise<AuthResult> {

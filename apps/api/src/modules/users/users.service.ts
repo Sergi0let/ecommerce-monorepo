@@ -8,7 +8,6 @@ import {
 import {
   ChangePasswordType,
   RegisterLocalType,
-  RequestPasswordResetType,
   SocialAuthType,
   UpdateUserType,
   UserType,
@@ -85,6 +84,17 @@ export class UsersService {
   }
 
   /**
+   * Find user all
+   */
+  async findAll(): Promise<UserType[]> {
+    const users = await this.prisma.client.user.findMany({
+      include: { socialAccounts: true },
+    });
+
+    return users.map((user) => this.toUserType(user));
+  }
+
+  /**
    * Update user profile (name, avatar)
    */
   async updateProfile(id: number, data: UpdateUserType): Promise<UserType> {
@@ -158,38 +168,6 @@ export class UsersService {
       where: { id },
       data: { isEmailVerified: true },
     });
-  }
-
-  /**
-   * Request password reset token (simplified - in production use email)
-   */
-  async requestPasswordReset(
-    data: RequestPasswordResetType,
-  ): Promise<{ message: string }> {
-    this.logger.log(`Password reset requested for email ${data.email}`);
-
-    const user = await this.prisma.client.user.findUnique({
-      where: { email: data.email },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // In production: send email with reset token
-    // For now: just return a message
-    return { message: 'Password reset email sent (if email exists)' };
-  }
-
-  /**
-   * Reset password with token
-   */
-  async resetPassword(): Promise<void> {
-    this.logger.log('Resetting password with token');
-
-    // In production: validate token and find user by token
-    // For MVP: simplified - would need proper token handling
-    throw new BadRequestException('Password reset not yet implemented');
   }
 
   /**

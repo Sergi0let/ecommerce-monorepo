@@ -20,7 +20,6 @@ import {
 import type { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
 
@@ -28,6 +27,20 @@ import { UsersService } from './users.service';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  /**
+   * Get all authenticated user profile
+   */
+  @Get()
+  @UseGuards(JwtGuard)
+  @ApiBearerAuth()
+  @ApiCookieAuth('access_token')
+  @ApiOperation({ summary: 'Get all users profiles' })
+  @ApiResponse({ status: 200, description: 'All users profile' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getAll() {
+    return this.usersService.findAll();
+  }
 
   /**
    * Get current authenticated user profile
@@ -98,30 +111,5 @@ export class UsersController {
     // This is a simplified endpoint - in production would validate token
     // For now, just acknowledge
     return;
-  }
-
-  /**
-   * Request password reset
-   */
-  @Post('request-password-reset')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Request password reset email' })
-  @ApiResponse({ status: 200, description: 'Reset email sent' })
-  async requestPasswordReset(
-    @Body() dto: RequestPasswordResetDto,
-  ): Promise<{ message: string }> {
-    return this.usersService.requestPasswordReset(dto);
-  }
-
-  /**
-   * Reset password with token
-   */
-  @Post('reset-password')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Reset password with token' })
-  @ApiResponse({ status: 204, description: 'Password reset' })
-  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
-  async resetPassword(): Promise<void> {
-    return this.usersService.resetPassword();
   }
 }
