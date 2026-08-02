@@ -9,7 +9,7 @@ Read [](file:///home/context/my-work/market-cosmo/packages/database/package.json
 1. Змінишь схему в schema.prisma
 2. Запускаєш міграцію в пакеті бази:
    - `cd /home/context/my-work/market-cosmo/packages/database`
-   - `pnpm db:migrate`
+   - `pnpm db:migrate name`
 3. Prisma сам:
    - створить нову migration;
    - застосує її до локальної бази;

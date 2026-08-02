@@ -11,6 +11,7 @@ import { Test } from '@nestjs/testing';
 import { prisma } from '@repo/database';
 import * as bcrypt from 'bcrypt';
 import cookieParser from 'cookie-parser';
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 
@@ -560,6 +561,226 @@ describe('Auth integration', () => {
           where: { id: token1.id },
         }),
       ).resolves.toBeNull();
+    });
+  });
+
+  describe('POST /api/auth/email-verification/resend', () => {
+    it('returns 204 for an authorized request and creates a token', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+
+      await agent
+        .post('/api/auth/login')
+        .send({ email: userInput.email, password: userInput.password })
+        .expect(200);
+
+      await agent.post('/api/auth/email-verification/resend').expect(204);
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+      });
+
+      const token = await prisma.emailVerificationToken.findFirstOrThrow({
+        where: { userId: user.id },
+      });
+
+      expect(token.userId).toBe(user.id);
+      expect(token.usedAt).toBeNull();
+      expect(token.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      await expect(
+        prisma.emailVerificationToken.count({
+          where: { userId: user.id },
+        }),
+      ).resolves.toBe(1);
+    });
+    it('returns 401 unauthorized request', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/email-verification/resend')
+        .send({ email: userInput.email })
+        .expect(401);
+    });
+
+    it('replaces the previous unused verification token', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+
+      await agent.post('/api/auth/email-verification/resend').expect(204);
+      const firstToken = await prisma.emailVerificationToken.findFirstOrThrow();
+
+      await agent.post('/api/auth/email-verification/resend').expect(204);
+      const tokens = await prisma.emailVerificationToken.findMany();
+
+      expect(tokens).toHaveLength(1);
+      expect(tokens[0]?.id).not.toBe(firstToken.id);
+    });
+
+    it('does not create a token for an already verified email', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      await prisma.user.update({
+        where: { email: userInput.email },
+        data: { isEmailVerified: true },
+      });
+
+      await agent.post('/api/auth/email-verification/resend').expect(204);
+      await expect(prisma.emailVerificationToken.count()).resolves.toBe(0);
+    });
+
+    it('invalidates a token created before a resend', async () => {
+      const rawToken = 'token-before-resend';
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+      });
+      await prisma.emailVerificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        },
+      });
+
+      await agent.post('/api/auth/email-verification/resend').expect(204);
+
+      await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: rawToken })
+        .expect(400);
+    });
+  });
+
+  describe('POST /api/auth/email-verification/verify', () => {
+    const rawToken = 'valid-email-verification-token';
+
+    const createVerificationToken = async (
+      expiresAt = new Date(Date.now() + 60 * 60 * 1000),
+    ) => {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+      });
+
+      return prisma.emailVerificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+          expiresAt,
+        },
+      });
+    };
+
+    it('verifies the email and consumes the token', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+      const token = await createVerificationToken();
+
+      await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: rawToken })
+        .expect(204);
+      await expect(
+        prisma.user.findUniqueOrThrow({
+          where: { email: userInput.email },
+          select: { isEmailVerified: true },
+        }),
+      ).resolves.toEqual({ isEmailVerified: true });
+      await expect(
+        prisma.emailVerificationToken.findUniqueOrThrow({
+          where: { id: token.id },
+          select: { usedAt: true },
+        }),
+      ).resolves.toMatchObject({ usedAt: expect.any(Date) });
+    });
+
+    it('returns 400 for an invalid or reused token', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+      await createVerificationToken();
+
+      await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: 'invalid-token' })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: rawToken })
+        .expect(204);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: rawToken })
+        .expect(400);
+
+      expect(response.body.message).toBe('Invalid or expired token');
+    });
+
+    it('returns 400 for an expired token without verifying the email', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+      await createVerificationToken(new Date(Date.now() - 1_000));
+
+      const response = await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: rawToken })
+        .expect(400);
+
+      expect(response.body.message).toBe('Invalid or expired token');
+      await expect(
+        prisma.user.findUniqueOrThrow({
+          where: { email: userInput.email },
+          select: { isEmailVerified: true },
+        }),
+      ).resolves.toEqual({ isEmailVerified: false });
+    });
+
+    it('returns 400 for a valid token when the email is already verified', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+      const token = await createVerificationToken();
+      await prisma.user.update({
+        where: { email: userInput.email },
+        data: { isEmailVerified: true },
+      });
+
+      await request(app.getHttpServer())
+        .post('/api/auth/email-verification/verify')
+        .send({ token: rawToken })
+        .expect(400);
+
+      await expect(
+        prisma.emailVerificationToken.findUniqueOrThrow({
+          where: { id: token.id },
+          select: { usedAt: true },
+        }),
+      ).resolves.toEqual({ usedAt: null });
+    });
+
+    it('allows only one of two concurrent verification requests', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+      await createVerificationToken();
+
+      const responses = await Promise.all([
+        request(app.getHttpServer())
+          .post('/api/auth/email-verification/verify')
+          .send({ token: rawToken }),
+        request(app.getHttpServer())
+          .post('/api/auth/email-verification/verify')
+          .send({ token: rawToken }),
+      ]);
+
+      expect(responses.map(({ status }) => status).sort()).toEqual([204, 400]);
     });
   });
 });

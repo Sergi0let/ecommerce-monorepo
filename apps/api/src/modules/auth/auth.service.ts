@@ -34,6 +34,7 @@ interface AuthResult extends AuthTokens {
 
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL = 15 * 60 * 1000;
+const EMAIL_VERIFICATION_TOKEN_TTL = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -170,6 +171,96 @@ export class AuthService {
       // - токена з неправильним підписом;
       // - уже видаленої сесії.
     }
+  }
+
+  async sendEmailVerification(userId: number): Promise<void> {
+    const user = await this.usersService.findById(userId);
+
+    if (user.isEmailVerified) {
+      return;
+    }
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL);
+
+    await this.prismaService.client.$transaction(async (tx) => {
+      await tx.emailVerificationToken.deleteMany({
+        where: { userId, usedAt: null },
+      });
+      await tx.emailVerificationToken.create({
+        data: {
+          userId,
+          tokenHash,
+          expiresAt,
+        },
+      });
+    });
+
+    return;
+  }
+
+  async verifyEmailAddress(token: string): Promise<void> {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    const emailVerificationToken =
+      await this.prismaService.client.emailVerificationToken.findFirst({
+        where: {
+          tokenHash,
+          usedAt: null,
+          expiresAt: {
+            gt: new Date(),
+          },
+        },
+        select: {
+          id: true,
+          userId: true,
+          usedAt: true,
+          expiresAt: true,
+        },
+      });
+
+    if (!emailVerificationToken) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const user = await this.usersService.findById(
+      emailVerificationToken.userId,
+    );
+
+    if (
+      emailVerificationToken.usedAt ||
+      emailVerificationToken.expiresAt <= new Date() ||
+      user.isEmailVerified
+    ) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    await this.prismaService.client.$transaction(async (tx) => {
+      const consumedToken = await tx.emailVerificationToken.updateMany({
+        where: {
+          id: emailVerificationToken.id,
+          usedAt: null,
+          expiresAt: {
+            gt: new Date(),
+          },
+        },
+        data: {
+          usedAt: new Date(),
+        },
+      });
+
+      if (consumedToken.count === 0) {
+        throw new BadRequestException('Invalid or expired token');
+      }
+
+      await tx.user.update({
+        where: { id: emailVerificationToken.userId },
+        data: { isEmailVerified: true },
+      });
+    });
+
+    return;
   }
 
   async requestPasswordReset(

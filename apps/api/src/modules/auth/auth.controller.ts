@@ -10,7 +10,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AuthResponseType, SocialAuthType } from '@repo/contracts';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -19,8 +24,10 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
+import { JwtGuard } from './guards/jwt.guard';
 import { RefreshRequestUser } from './strategies/jwt-refresh.strategy';
 
 type RefreshRequest = Request & {
@@ -168,6 +175,34 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid or expired token' })
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
     return this.authService.resetPassword(dto);
+  }
+
+  /**
+   * Verify email
+   */
+  @Post('email-verification/resend')
+  @UseGuards(JwtGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Send or resend an email verification token' })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'Verification email request accepted',
+  })
+  async resendEmailVerification(@Req() req: Request): Promise<void> {
+    await this.authService.sendEmailVerification(req.user!.id);
+  }
+
+  @Post('email-verification/verify')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Verify email with token' })
+  @ApiResponse({ status: HttpStatus.NO_CONTENT, description: 'Email verified' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or expired token',
+  })
+  async verifyEmailAddress(@Body() dto: VerifyEmailDto): Promise<void> {
+    await this.authService.verifyEmailAddress(dto.token);
   }
 
   private setAuthCookies({
