@@ -98,18 +98,4 @@ export class UsersController {
   ): Promise<void> {
     return this.usersService.changePassword(req.user!.id, dto);
   }
-
-  /**
-   * Verify email
-   */
-  @Post('verify-email')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Verify email address' })
-  @ApiResponse({ status: 204, description: 'Email verified' })
-  @ApiResponse({ status: 400, description: 'Invalid token' })
-  async verifyEmail(): Promise<void> {
-    // This is a simplified endpoint - in production would validate token
-    // For now, just acknowledge
-    return;
-  }
 }

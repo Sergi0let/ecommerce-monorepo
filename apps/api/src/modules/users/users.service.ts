@@ -159,18 +159,6 @@ export class UsersService {
   }
 
   /**
-   * Verify email
-   */
-  async verifyEmail(id: number): Promise<void> {
-    this.logger.log(`Verifying email for user ${id}`);
-
-    await this.prisma.client.user.update({
-      where: { id },
-      data: { isEmailVerified: true },
-    });
-  }
-
-  /**
    * Find or create user from social auth (Google/Facebook)
    */
   async findOrCreateFromSocialAuth(data: SocialAuthType): Promise<UserType> {
