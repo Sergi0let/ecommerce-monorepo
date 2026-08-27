@@ -26,6 +26,16 @@ import { PrismaModule } from './prisma/prisma.module';
     PrismaModule,
     LoggerModule.forRoot({
       pinoHttp: {
+        serializers: {
+          req: (request) => ({
+            method: request.method,
+            url: request.url?.split('?', 1)[0],
+            remoteAddress: request.remoteAddress,
+          }),
+          res: (response) => ({
+            statusCode: response.statusCode,
+          }),
+        },
         transport: {
           target: 'pino-pretty',
           options: {

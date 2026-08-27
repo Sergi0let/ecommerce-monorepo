@@ -1,7 +1,10 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -17,6 +20,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { RefreshRequestUser } from './strategies/jwt-refresh.strategy';
 import { JwtPayload } from './types/jwt-payload';
@@ -35,6 +39,7 @@ interface AuthResult extends AuthTokens {
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL = 15 * 60 * 1000;
 const EMAIL_VERIFICATION_TOKEN_TTL = 24 * 60 * 60 * 1000;
+const EMAIL_VERIFICATION_RESEND_COOLDOWN = 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -45,16 +50,17 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   async register(data: RegisterLocalType): Promise<AuthResult> {
-    this.logger.log(`Registering user ${data.email}`);
+    this.logger.log('Registering user');
     const user = await this.usersService.registerLocal(data);
     return this.buildAuthResult(user);
   }
 
   async login(data: LoginLocalType): Promise<AuthResult> {
-    this.logger.log(`Login attempt for ${data.email}`);
+    this.logger.log('Login attempt');
 
     const user = await this.usersService.validatePassword(
       data.email,
@@ -180,22 +186,97 @@ export class AuthService {
       return;
     }
 
+    const now = new Date();
+    const cooldownStartedAt = new Date(
+      now.getTime() - EMAIL_VERIFICATION_RESEND_COOLDOWN,
+    );
+
+    const reservation = await this.prismaService.client.user.updateMany({
+      where: {
+        id: userId,
+        isEmailVerified: false,
+        OR: [
+          { emailVerificationLastSentAt: null },
+          { emailVerificationLastSentAt: { lte: cooldownStartedAt } },
+        ],
+      },
+      data: {
+        emailVerificationLastSentAt: now,
+      },
+    });
+
+    if (reservation.count === 0) {
+      const currentUser = await this.usersService.findById(userId);
+
+      if (currentUser.isEmailVerified) {
+        return;
+      }
+
+      throw new HttpException(
+        'Please wait before requesting another verification email',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const rawToken = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL);
+    let verificationTokenId: string | undefined;
 
-    await this.prismaService.client.$transaction(async (tx) => {
-      await tx.emailVerificationToken.deleteMany({
-        where: { userId, usedAt: null },
-      });
-      await tx.emailVerificationToken.create({
-        data: {
-          userId,
-          tokenHash,
-          expiresAt,
+    try {
+      const verificationToken = await this.prismaService.client.$transaction(
+        async (tx) => {
+          await tx.emailVerificationToken.deleteMany({
+            where: { userId, usedAt: null },
+          });
+
+          return tx.emailVerificationToken.create({
+            data: {
+              userId,
+              tokenHash,
+              expiresAt,
+            },
+          });
         },
+      );
+
+      verificationTokenId = verificationToken.id;
+
+      const verificationUrl = new URL(
+        '/verify-email',
+        this.configService.getOrThrow<string>('WEB_URL'),
+      );
+      verificationUrl.searchParams.set('token', rawToken);
+
+      await this.mailService.sendEmailVerification({
+        to: user.email,
+        actionUrl: verificationUrl.toString(),
       });
-    });
+    } catch (error) {
+      await this.prismaService.client.$transaction(async (tx) => {
+        if (verificationTokenId) {
+          await tx.emailVerificationToken.deleteMany({
+            where: {
+              id: verificationTokenId,
+              tokenHash,
+              usedAt: null,
+            },
+          });
+        }
+
+        await tx.user.updateMany({
+          where: {
+            id: userId,
+            emailVerificationLastSentAt: now,
+          },
+          data: {
+            emailVerificationLastSentAt: null,
+          },
+        });
+      });
+
+      throw error;
+    }
 
     return;
   }
@@ -267,7 +348,7 @@ export class AuthService {
     data: RequestPasswordResetType,
   ): Promise<{ message: string }> {
     const errorMessage = 'If the account exists, a reset email has been sent';
-    this.logger.log(`Password reset requested for email ${data.email}`);
+    this.logger.log('Password reset requested');
 
     const user = await this.usersService.findByEmail(data.email);
 
@@ -296,11 +377,23 @@ export class AuthService {
         },
       });
     });
-    if (process.env.NODE_ENV !== 'production') {
-      this.logger.debug(
-        `Password reset URL: http://localhost:3010/reset-password?token=${rawToken}`,
-      );
+    const resetUrl = new URL(
+      '/reset-password',
+      this.configService.getOrThrow<string>('WEB_URL'),
+    );
+    resetUrl.searchParams.set('token', rawToken);
+
+    try {
+      await this.mailService.sendPasswordReset({
+        to: user.email,
+        actionUrl: resetUrl.toString(),
+      });
+    } catch (error) {
+      if (!(error instanceof ServiceUnavailableException)) {
+        throw error;
+      }
     }
+
     return {
       message: errorMessage,
     };

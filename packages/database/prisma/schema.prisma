@@ -23,18 +23,19 @@ enum UserProvider {
 }
 
 model User {
-  id              Int          @id @default(autoincrement())
-  email           String       @unique
-  passwordHash    String?
-  firstName       String?
-  lastName        String?
-  avatarUrl       String?
-  role            UserRole     @default(CUSTOMER)
-  provider        UserProvider @default(LOCAL)
-  isEmailVerified Boolean      @default(false)
-  isActive        Boolean      @default(true)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime?    @updatedAt
+  id                          Int          @id @default(autoincrement())
+  email                       String       @unique
+  passwordHash                String?
+  firstName                   String?
+  lastName                    String?
+  avatarUrl                   String?
+  role                        UserRole     @default(CUSTOMER)
+  provider                    UserProvider @default(LOCAL)
+  isEmailVerified             Boolean      @default(false)
+  emailVerificationLastSentAt DateTime?
+  isActive                    Boolean      @default(true)
+  createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime?    @updatedAt
 
   socialAccounts          SocialAccount[]
   refreshSessions         RefreshSession[]
