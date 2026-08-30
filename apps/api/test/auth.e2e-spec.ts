@@ -6,7 +6,7 @@ import {
   expect,
   it,
 } from '@jest/globals';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { prisma } from '@repo/database';
 import * as bcrypt from 'bcrypt';
@@ -14,9 +14,44 @@ import cookieParser from 'cookie-parser';
 import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { MailService } from '../src/modules/mail/mail.service';
 
 describe('Auth integration', () => {
   let app: INestApplication;
+  let mailDeliveryError: ServiceUnavailableException | undefined;
+  const sentEmails: Array<{
+    type: 'verification' | 'password-reset';
+    to: string;
+    actionUrl: string;
+  }> = [];
+  const mailService = {
+    sendEmailVerification: async ({
+      to,
+      actionUrl,
+    }: {
+      to: string;
+      actionUrl: string;
+    }): Promise<void> => {
+      if (mailDeliveryError) {
+        throw mailDeliveryError;
+      }
+
+      sentEmails.push({ type: 'verification', to, actionUrl });
+    },
+    sendPasswordReset: async ({
+      to,
+      actionUrl,
+    }: {
+      to: string;
+      actionUrl: string;
+    }): Promise<void> => {
+      if (mailDeliveryError) {
+        throw mailDeliveryError;
+      }
+
+      sentEmails.push({ type: 'password-reset', to, actionUrl });
+    },
+  };
 
   const userInput = {
     email: 'alice@example.com',
@@ -36,7 +71,10 @@ describe('Auth integration', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(MailService)
+      .useValue(mailService)
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.use(cookieParser());
@@ -45,6 +83,8 @@ describe('Auth integration', () => {
   });
 
   beforeEach(async () => {
+    mailDeliveryError = undefined;
+    sentEmails.length = 0;
     await cleanAuthData();
   });
 
@@ -470,6 +510,31 @@ describe('Auth integration', () => {
 
       expect(response2.body.message).toBe(errorMessage);
       await expect(prisma.passwordResetToken.count()).resolves.toBe(1);
+      expect(sentEmails).toHaveLength(1);
+      expect(sentEmails[0]).toMatchObject({
+        type: 'password-reset',
+        to: userInput.email,
+      });
+      expect(new URL(sentEmails[0]!.actionUrl).pathname).toBe(
+        '/reset-password',
+      );
+    });
+
+    it('returns the same response when email delivery is unavailable', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+      mailDeliveryError = new ServiceUnavailableException();
+
+      await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200, { message: errorMessage });
+      await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: 'unknown@example.com' })
+        .expect(200, { message: errorMessage });
     });
 
     it('request create a token in db', async () => {
@@ -533,6 +598,13 @@ describe('Auth integration', () => {
       expect(token1.usedAt).toBeNull();
       expect(token1.expiresAt.getTime()).toBeGreaterThan(Date.now());
 
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordResetLastSentAt: new Date(Date.now() - 61 * 1000),
+        },
+      });
+
       const response2 = await request(app.getHttpServer())
         .post('/api/auth/request-password-reset')
         .send({ email: userInput.email })
@@ -562,6 +634,43 @@ describe('Auth integration', () => {
         }),
       ).resolves.toBeNull();
     });
+
+    it('does not send another reset email during the cooldown', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+
+      expect(sentEmails).toHaveLength(1);
+    });
+
+    it('atomically rate limits concurrent password-reset requests', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      const responses = await Promise.all([
+        request(app.getHttpServer())
+          .post('/api/auth/request-password-reset')
+          .send({ email: userInput.email }),
+        request(app.getHttpServer())
+          .post('/api/auth/request-password-reset')
+          .send({ email: userInput.email }),
+      ]);
+
+      expect(responses.map(({ status }) => status).sort()).toEqual([200, 200]);
+      expect(sentEmails).toHaveLength(1);
+    });
   });
 
   describe('POST /api/auth/email-verification/resend', () => {
@@ -575,6 +684,15 @@ describe('Auth integration', () => {
         .expect(200);
 
       await agent.post('/api/auth/email-verification/resend').expect(204);
+
+      expect(sentEmails).toHaveLength(1);
+      expect(sentEmails[0]).toMatchObject({
+        type: 'verification',
+        to: userInput.email,
+      });
+      const verificationUrl = new URL(sentEmails[0]!.actionUrl);
+      expect(verificationUrl.pathname).toBe('/verify-email');
+      expect(verificationUrl.searchParams.get('token')).toBeTruthy();
 
       const user = await prisma.user.findUniqueOrThrow({
         where: { email: userInput.email },
@@ -606,12 +724,56 @@ describe('Auth integration', () => {
 
       await agent.post('/api/auth/email-verification/resend').expect(204);
       const firstToken = await prisma.emailVerificationToken.findFirstOrThrow();
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+      });
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerificationLastSentAt: new Date(Date.now() - 61 * 1000),
+        },
+      });
 
       await agent.post('/api/auth/email-verification/resend').expect(204);
       const tokens = await prisma.emailVerificationToken.findMany();
 
       expect(tokens).toHaveLength(1);
       expect(tokens[0]?.id).not.toBe(firstToken.id);
+    });
+
+    it('returns 429 when a verification email was requested too recently', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+
+      await agent.post('/api/auth/email-verification/resend').expect(204);
+      await agent.post('/api/auth/email-verification/resend').expect(429);
+      expect(sentEmails).toHaveLength(1);
+    });
+
+    it('atomically rate limits concurrent verification email requests', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+
+      const responses = await Promise.all([
+        agent.post('/api/auth/email-verification/resend'),
+        agent.post('/api/auth/email-verification/resend'),
+      ]);
+
+      expect(responses.map(({ status }) => status).sort()).toEqual([204, 429]);
+      expect(sentEmails).toHaveLength(1);
+    });
+
+    it('removes the token when email delivery fails so the request can be retried', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      mailDeliveryError = new ServiceUnavailableException();
+
+      await agent.post('/api/auth/email-verification/resend').expect(503);
+      await expect(prisma.emailVerificationToken.count()).resolves.toBe(0);
+
+      mailDeliveryError = undefined;
+      await agent.post('/api/auth/email-verification/resend').expect(204);
     });
 
     it('does not create a token for an already verified email', async () => {

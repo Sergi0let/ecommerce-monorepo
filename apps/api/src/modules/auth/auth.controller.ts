@@ -189,6 +189,14 @@ export class AuthController {
     status: HttpStatus.NO_CONTENT,
     description: 'Verification email request accepted',
   })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Verification email was requested too recently',
+  })
+  @ApiResponse({
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    description: 'Email delivery is temporarily unavailable',
+  })
   async resendEmailVerification(@Req() req: Request): Promise<void> {
     await this.authService.sendEmailVerification(req.user!.id);
   }

@@ -152,6 +152,25 @@ export class UsersService {
     // Hash new password
     const hashedPassword = await bcrypt.hash(data.newPassword, 10);
 
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id },
+        data: {
+          passwordHash: hashedPassword,
+        },
+      });
+
+      await tx.refreshSession.updateMany({
+        where: {
+          userId: id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+    });
+
     await this.prisma.client.user.update({
       where: { id },
       data: { passwordHash: hashedPassword },

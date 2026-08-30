@@ -297,9 +297,31 @@ pnpm --filter @repo/database db:migrate
 # Production deploy
 pnpm --filter @repo/database db:deploy
 
+# Застосувати готові migrations до e2e test database
+(
+  set -a
+  . ./apps/api/.env
+  set +a
+
+  DATABASE_URL="$TEST_DATABASE_URL" \
+    pnpm --filter @repo/database db:deploy
+)
+
 # Перевірка типів
 pnpm turbo run check-types
 ```
+
+### Міграції для e2e test database
+
+Після зміни `schema.prisma` спочатку створюй migration через `db:migrate`, а
+потім застосовуй уже створений migration-файл до `market_cosmo_test` через
+`db:deploy`. Не використовуй `db:migrate` для test database: він призначений
+для створення migration під час розробки.
+
+Команда вище тимчасово бере `TEST_DATABASE_URL` з `apps/api/.env`. Дужки
+запускають її в окремому shell, тому env-змінні не залишаються у поточному
+терміналі. Детальний e2e workflow і troubleshooting:
+[`apps/api/test/test-register.md`](../apps/api/test/test-register.md).
 
 ## Gitignore
 
