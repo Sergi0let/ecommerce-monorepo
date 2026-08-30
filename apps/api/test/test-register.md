@@ -93,17 +93,23 @@ pnpm --filter @repo/database db:generate
 тимчасово передаємо його Prisma як `DATABASE_URL`:
 
 ```bash
-set -a
-. ./apps/api/.env
-set +a
+(
+  set -a
+  . ./apps/api/.env
+  set +a
 
-DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @repo/database db:deploy
+  DATABASE_URL="$TEST_DATABASE_URL" \
+    pnpm --filter @repo/database db:deploy
+)
 ```
 
 Тут потрібен саме `db:deploy`, а не `db:migrate`:
 
 - `db:migrate` створює нову migration під час розробки;
 - `db:deploy` лише застосовує вже наявні migration-файли до потрібної БД.
+
+Дужки запускають команду в окремому shell: env-змінні з `apps/api/.env` не
+залишаються в поточному терміналі.
 
 Це той самий принцип, який використовуватиме CI або production.
 

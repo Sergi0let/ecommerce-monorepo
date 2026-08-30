@@ -40,6 +40,7 @@ const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL = 15 * 60 * 1000;
 const EMAIL_VERIFICATION_TOKEN_TTL = 24 * 60 * 60 * 1000;
 const EMAIL_VERIFICATION_RESEND_COOLDOWN = 60 * 1000;
+const PASSWORD_RESEND_COOLDOWN = 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -361,6 +362,28 @@ export class AuthService {
     const rawToken = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL);
+
+    const now = new Date();
+    const cooldownStartedAt = new Date(
+      now.getTime() - PASSWORD_RESEND_COOLDOWN,
+    );
+
+    const reservation = await this.prismaService.client.user.updateMany({
+      where: {
+        id: user.id,
+        OR: [
+          { passwordResetLastSentAt: null },
+          { passwordResetLastSentAt: { lte: cooldownStartedAt } },
+        ],
+      },
+      data: {
+        passwordResetLastSentAt: now,
+      },
+    });
+
+    if (reservation.count === 0) {
+      return { message: errorMessage };
+    }
 
     await this.prismaService.client.$transaction(async (tx) => {
       await tx.passwordResetToken.deleteMany({

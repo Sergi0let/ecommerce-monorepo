@@ -598,6 +598,13 @@ describe('Auth integration', () => {
       expect(token1.usedAt).toBeNull();
       expect(token1.expiresAt.getTime()).toBeGreaterThan(Date.now());
 
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordResetLastSentAt: new Date(Date.now() - 61 * 1000),
+        },
+      });
+
       const response2 = await request(app.getHttpServer())
         .post('/api/auth/request-password-reset')
         .send({ email: userInput.email })
@@ -626,6 +633,43 @@ describe('Auth integration', () => {
           where: { id: token1.id },
         }),
       ).resolves.toBeNull();
+    });
+
+    it('does not send another reset email during the cooldown', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+
+      expect(sentEmails).toHaveLength(1);
+    });
+
+    it('atomically rate limits concurrent password-reset requests', async () => {
+      await request(app.getHttpServer())
+        .post('/api/auth/register')
+        .send(userInput)
+        .expect(201);
+
+      const responses = await Promise.all([
+        request(app.getHttpServer())
+          .post('/api/auth/request-password-reset')
+          .send({ email: userInput.email }),
+        request(app.getHttpServer())
+          .post('/api/auth/request-password-reset')
+          .send({ email: userInput.email }),
+      ]);
+
+      expect(responses.map(({ status }) => status).sort()).toEqual([200, 200]);
+      expect(sentEmails).toHaveLength(1);
     });
   });
 
