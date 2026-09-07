@@ -8,19 +8,10 @@ import {
   Param,
   Post,
   Put,
-  UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@repo/contracts';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { JwtGuard } from '../auth/guards/jwt.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { InventoryDto } from './dto/inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
@@ -28,13 +19,11 @@ import { InventoryService } from './inventory.service';
 
 @ApiTags('Inventory')
 @Controller('inventory')
+@RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Post()
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a single inventory' })
   @ApiResponse({ status: 201, type: InventoryDto })
@@ -45,9 +34,6 @@ export class InventoryController {
   }
 
   @Put('id/:id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update inventory by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: InventoryDto })
@@ -58,9 +44,6 @@ export class InventoryController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete inventory' })
   @ApiResponse({ status: 204, description: 'Inventory deleted' })

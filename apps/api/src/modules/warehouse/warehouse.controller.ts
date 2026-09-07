@@ -9,10 +9,8 @@ import {
   Post,
   Put,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -20,9 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { UserRole } from '@repo/contracts';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { JwtGuard } from '../auth/guards/jwt.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { WarehouseQueryDto } from './dto/warehouse-query.dto';
@@ -31,13 +27,11 @@ import { WarehouseService } from './warehouse.service';
 
 @ApiTags('Warehouse')
 @Controller('warehouse')
+@RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}
 
   @Post()
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new warehouse' })
   @ApiResponse({ status: 201, type: WarehouseDto })
@@ -46,9 +40,6 @@ export class WarehouseController {
   }
 
   @Put('id/:id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update warehouse by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: WarehouseDto })
@@ -58,9 +49,6 @@ export class WarehouseController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete warehouse' })
   @ApiResponse({ status: 204, description: 'Warehouse deleted' })
@@ -73,9 +61,6 @@ export class WarehouseController {
   }
 
   @Get()
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all warehouse' })
   @ApiResponse({ status: 200, type: [WarehouseDto] })
   @ApiQuery({ name: 'isActive', type: Boolean, required: false })
@@ -85,9 +70,6 @@ export class WarehouseController {
   }
 
   @Get('id/:id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get warehouse by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: WarehouseDto })

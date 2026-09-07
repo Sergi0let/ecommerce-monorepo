@@ -9,11 +9,8 @@ import {
   Post,
   Put,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
-  ApiCookieAuth,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -21,9 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { UserRole } from '@repo/contracts';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { JwtGuard } from '../auth/guards/jwt.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductDto } from './dto/product.dto';
 import { ProductsQueryDto } from './dto/products-query.dto';
@@ -37,13 +32,8 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.CREATED)
-  @ApiBearerAuth()
-  @ApiCookieAuth('access_token')
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
   @ApiOperation({ summary: 'Create a product with its initial variant' })
   @ApiResponse({ status: 201, type: ProductDto })
   @ApiResponse({
@@ -55,12 +45,7 @@ export class ProductController {
   }
 
   @Put('id/:id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
-  @ApiCookieAuth('access_token')
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update product by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductDto })
@@ -70,13 +55,8 @@ export class ProductController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @RequireRoles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
-  @ApiCookieAuth('access_token')
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
   @ApiOperation({ summary: 'Delete product' })
   @ApiResponse({ status: 204, description: 'Delete product by id' })
   delete(@Param('id') id: string) {
@@ -95,12 +75,7 @@ export class ProductController {
   }
 
   @Get('id/:id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
-  @ApiCookieAuth('access_token')
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden' })
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Get product by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductDto })

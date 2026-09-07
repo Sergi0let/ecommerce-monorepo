@@ -9,10 +9,8 @@ import {
   Post,
   Put,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -20,9 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { UserRole } from '@repo/contracts';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { JwtGuard } from '../auth/guards/jwt.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CategoryService } from './category.service';
 import { CategoriesQueryDto } from './dto/categories-query.dto';
 import { CategoryProductsPageDto } from './dto/category-products-page.dto';
@@ -38,9 +34,7 @@ export class CategoryController {
   constructor(private readonly categoryService: CategoryService) {}
 
   @Post()
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new category' })
   @ApiResponse({ status: 201, type: CategoryDto })
@@ -53,9 +47,7 @@ export class CategoryController {
   }
 
   @Put('id/:id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update a category by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: CategoryDto })
@@ -65,9 +57,7 @@ export class CategoryController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiBearerAuth()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a category' })
   @ApiResponse({ status: 204, description: 'Category deleted' })

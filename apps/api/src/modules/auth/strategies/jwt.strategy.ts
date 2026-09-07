@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
+import { UserRole } from '@repo/contracts';
 import type { Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { JwtPayload } from '../types/jwt-payload';
 
 const extractAccessToken = (request: Request): string | null => {
@@ -10,7 +12,10 @@ const extractAccessToken = (request: Request): string | null => {
 };
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         extractAccessToken,
@@ -24,7 +29,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: JwtPayload): JwtPayload {
-    return payload;
+  async validate(payload: JwtPayload): Promise<JwtPayload> {
+    if (
+      !Number.isSafeInteger(payload?.id) ||
+      payload.id <= 0 ||
+      payload.id > 2_147_483_647
+    ) {
+      throw new UnauthorizedException('Invalid access token');
+    }
+
+    const user = await this.prisma.client.user.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, role: true, isActive: true },
+    });
+
+    if (!user?.isActive) {
+      throw new UnauthorizedException('User is inactive or no longer exists');
+    }
+
+    return { id: user.id, email: user.email, role: UserRole[user.role] };
   }
 }
