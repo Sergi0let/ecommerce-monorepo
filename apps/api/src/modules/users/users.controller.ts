@@ -17,8 +17,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
 import type { Request } from 'express';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtGuard } from '../auth/guards/jwt.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
@@ -32,7 +35,8 @@ export class UsersController {
    * Get all authenticated user profile
    */
   @Get()
-  @UseGuards(JwtGuard)
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiCookieAuth('access_token')
   @ApiOperation({ summary: 'Get all users profiles' })
@@ -60,6 +64,9 @@ export class UsersController {
    * Get user by ID (public endpoint, limited info)
    */
   @Get(':id')
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get user profile by ID' })
   @ApiResponse({ status: 200, description: 'User profile' })
   @ApiResponse({ status: 404, description: 'User not found' })

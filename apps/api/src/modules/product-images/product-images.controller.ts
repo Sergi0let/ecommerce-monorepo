@@ -8,8 +8,19 @@ import {
   Param,
   Post,
   Put,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtGuard } from '../auth/guards/jwt.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { CreateProductImagesDto } from './dto/create-product-images.dto';
 import { ProductImagesDto } from './dto/product-images.dto';
 import { UpdateProductImagesDto } from './dto/update-product-images.dto';
@@ -21,6 +32,9 @@ export class ProductImagesController {
   constructor(private readonly productImagesService: ProductImagesService) {}
 
   @Post()
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create a new image for a product or product variant',
@@ -32,6 +46,9 @@ export class ProductImagesController {
   }
 
   @Put('id/:id')
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update product image by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductImagesDto })
@@ -41,6 +58,9 @@ export class ProductImagesController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete product image' })
   @ApiResponse({ status: 204, description: 'Product image deleted' })

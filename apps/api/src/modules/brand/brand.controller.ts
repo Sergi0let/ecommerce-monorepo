@@ -9,14 +9,20 @@ import {
   Post,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiOperation,
   ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtGuard } from '../auth/guards/jwt.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { BrandService } from './brand.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandProductsPageDto } from './dto/brand-products-page.dto';
@@ -32,6 +38,9 @@ export class BrandController {
   constructor(private readonly brandService: BrandService) {}
 
   @Post()
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new brand' })
   @ApiResponse({ status: 201, type: BrandDto })
@@ -40,6 +49,9 @@ export class BrandController {
   }
 
   @Put('id/:id')
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update brand by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: BrandDto })
@@ -49,6 +61,9 @@ export class BrandController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete brand' })
   @ApiResponse({ status: 204, description: 'Brand deleted' })

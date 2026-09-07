@@ -73,6 +73,7 @@ export class ProductService {
 
   async delete(id: string) {
     this.logger.log(`Deleting Product ${id}`);
+    console.log('id ', id);
 
     await this.getById(id);
 
