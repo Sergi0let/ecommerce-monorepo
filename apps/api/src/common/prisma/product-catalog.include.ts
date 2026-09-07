@@ -1,3 +1,17 @@
+import type { Prisma } from '@repo/database';
+
+const catalogPriceSelect = {
+  id: true,
+  variantId: true,
+  currency: true,
+  amountCents: true,
+  compareAtCents: true,
+  isValidFrom: true,
+  isValidTo: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.PriceSelect;
+
 export const getProductCatalogInclude = (now = new Date()) => {
   const activePriceWhere = {
     OR: [{ isValidFrom: null }, { isValidFrom: { lte: now } }],
@@ -13,6 +27,7 @@ export const getProductCatalogInclude = (now = new Date()) => {
       orderBy: [{ isDefault: 'desc' as const }, { createdAt: 'asc' as const }],
       include: {
         prices: {
+          select: catalogPriceSelect,
           where: activePriceWhere,
           orderBy: { isValidFrom: 'desc' as const },
           take: 1,
@@ -25,5 +40,5 @@ export const getProductCatalogInclude = (now = new Date()) => {
         },
       },
     },
-  };
+  } satisfies Prisma.ProductInclude;
 };

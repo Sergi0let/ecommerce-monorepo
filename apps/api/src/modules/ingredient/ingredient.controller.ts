@@ -10,6 +10,8 @@ import {
   Put,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateIngredientDto } from './dto/create-ingredient.dto';
 import { IngredientDto } from './dto/ingredient.dto';
 import { UpdateIngredientDto } from './dto/update-ingredient.dto';
@@ -21,6 +23,7 @@ export class IngredientController {
   constructor(private readonly ingredientService: IngredientService) {}
 
   @Post()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new ingredient' })
   @ApiResponse({ status: 201, type: IngredientDto })
@@ -30,6 +33,7 @@ export class IngredientController {
   }
 
   @Put('id/:id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update ingredient by id' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: IngredientDto })
@@ -40,6 +44,7 @@ export class IngredientController {
   }
 
   @Delete(':id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete ingredient' })
   @ApiResponse({ status: 204, description: 'Ingredient deleted' })

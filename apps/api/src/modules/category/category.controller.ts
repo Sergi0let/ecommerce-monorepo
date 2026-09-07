@@ -17,6 +17,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CategoryService } from './category.service';
 import { CategoriesQueryDto } from './dto/categories-query.dto';
 import { CategoryProductsPageDto } from './dto/category-products-page.dto';
@@ -32,6 +34,7 @@ export class CategoryController {
   constructor(private readonly categoryService: CategoryService) {}
 
   @Post()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new category' })
   @ApiResponse({ status: 201, type: CategoryDto })
@@ -44,6 +47,7 @@ export class CategoryController {
   }
 
   @Put('id/:id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update a category by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: CategoryDto })
@@ -53,6 +57,7 @@ export class CategoryController {
   }
 
   @Delete(':id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a category' })
   @ApiResponse({ status: 204, description: 'Category deleted' })

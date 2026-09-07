@@ -10,6 +10,8 @@ import {
   Put,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { InventoryDto } from './dto/inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
@@ -17,6 +19,7 @@ import { InventoryService } from './inventory.service';
 
 @ApiTags('Inventory')
 @Controller('inventory')
+@RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 

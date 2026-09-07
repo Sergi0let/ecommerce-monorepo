@@ -17,6 +17,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { BrandService } from './brand.service';
 import { BrandProductsQueryDto } from './dto/brand-product-query.dto';
 import { BrandProductsPageDto } from './dto/brand-products-page.dto';
@@ -32,6 +34,7 @@ export class BrandController {
   constructor(private readonly brandService: BrandService) {}
 
   @Post()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create new brand' })
   @ApiResponse({ status: 201, type: BrandDto })
@@ -40,6 +43,7 @@ export class BrandController {
   }
 
   @Put('id/:id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update brand by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 201, type: BrandDto })
@@ -49,6 +53,7 @@ export class BrandController {
   }
 
   @Delete(':id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete brand' })
   @ApiResponse({ status: 204, description: 'Brand deleted' })

@@ -17,6 +17,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductDto } from './dto/product.dto';
 import { ProductsQueryDto } from './dto/products-query.dto';
@@ -30,6 +32,7 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a product with its initial variant' })
   @ApiResponse({ status: 201, type: ProductDto })
@@ -42,6 +45,7 @@ export class ProductController {
   }
 
   @Put('id/:id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update product by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductDto })
@@ -51,6 +55,7 @@ export class ProductController {
   }
 
   @Delete(':id')
+  @RequireRoles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete product' })
   @ApiResponse({ status: 204, description: 'Delete product by id' })
@@ -70,6 +75,7 @@ export class ProductController {
   }
 
   @Get('id/:id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Get product by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductDto })

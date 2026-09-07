@@ -10,6 +10,8 @@ import {
   Put,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateProductPriceDto } from './dto/create-product-price.dto';
 import { ProductPriceDto } from './dto/product-price.dto';
 import { UpdateProductPriceDto } from './dto/update-product-price.dto';
@@ -17,6 +19,7 @@ import { ProductPriceService } from './product-price.service';
 
 @ApiTags('Product price')
 @Controller('product-prices')
+@RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
 export class ProductPriceController {
   constructor(private readonly productPriceService: ProductPriceService) {}
 

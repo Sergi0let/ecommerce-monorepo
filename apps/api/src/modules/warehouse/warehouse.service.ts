@@ -72,7 +72,7 @@ export class WarehouseService {
       .then(([, warehouse]) => warehouse);
   }
 
-  async delete(id: string) {
+  delete(id: string) {
     this.logger.log(`Deleting warehouse ${id}`);
 
     // const warehouse = await this.prisma.client.warehouse.findUnique({
@@ -81,7 +81,7 @@ export class WarehouseService {
     //     _count: { select: { inventory } },
     //   },
     // });
-    this.prisma.client.warehouse.delete({
+    return this.prisma.client.warehouse.delete({
       where: { id },
     });
   }

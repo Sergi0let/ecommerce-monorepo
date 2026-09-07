@@ -17,6 +17,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { WarehouseQueryDto } from './dto/warehouse-query.dto';
@@ -25,6 +27,7 @@ import { WarehouseService } from './warehouse.service';
 
 @ApiTags('Warehouse')
 @Controller('warehouse')
+@RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
 export class WarehouseController {
   constructor(private readonly warehouseService: WarehouseService) {}
 

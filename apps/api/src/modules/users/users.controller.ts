@@ -17,7 +17,9 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { UserRole } from '@repo/contracts';
 import type { Request } from 'express';
+import { RequireRoles } from '../auth/decorators/require-roles.decorator';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -32,12 +34,9 @@ export class UsersController {
    * Get all authenticated user profile
    */
   @Get()
-  @UseGuards(JwtGuard)
-  @ApiBearerAuth()
-  @ApiCookieAuth('access_token')
+  @RequireRoles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get all users profiles' })
   @ApiResponse({ status: 200, description: 'All users profile' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getAll() {
     return this.usersService.findAll();
   }
@@ -48,7 +47,7 @@ export class UsersController {
   @Get('me')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
-  @ApiCookieAuth('access_token')
+  @ApiCookieAuth()
   @ApiOperation({ summary: 'Get current user profile' })
   @ApiResponse({ status: 200, description: 'User profile' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -57,9 +56,10 @@ export class UsersController {
   }
 
   /**
-   * Get user by ID (public endpoint, limited info)
+   * Get user by ID for administrators and managers
    */
   @Get(':id')
+  @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Get user profile by ID' })
   @ApiResponse({ status: 200, description: 'User profile' })
   @ApiResponse({ status: 404, description: 'User not found' })
