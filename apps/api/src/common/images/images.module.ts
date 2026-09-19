@@ -16,6 +16,6 @@ import {
     },
     ImageProcessorService,
   ],
-  exports: [ImageProcessorService],
+  exports: [ImageProcessorService, IMAGE_PROCESSING_CONFIG],
 })
 export class ImagesModule {}

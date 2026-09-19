@@ -7,13 +7,25 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  ParseFilePipe,
   Post,
   Put,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserRole } from '@repo/contracts';
+import { ZodSerializerDto } from 'nestjs-zod';
 import { RequireRoles } from '../auth/decorators/require-roles.decorator';
-import { CreateProductImagesDto } from './dto/create-product-images.dto';
+import { UploadProductImageDto } from './dto/upload-product-image.dto';
 import { ProductImagesDto } from './dto/product-images.dto';
 import { UpdateProductImagesDto } from './dto/update-product-images.dto';
 import { ProductImagesService } from './product-images.service';
@@ -25,20 +37,67 @@ export class ProductImagesController {
 
   @Post('products/:productId/images')
   @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
+  @UseInterceptors(FileInterceptor('file'))
+  @HttpCode(HttpStatus.CREATED)
+  @ZodSerializerDto(ProductImagesDto)
   @ApiOperation({
-    summary: 'Product image upload placeholder',
+    summary: 'Upload a product image',
     description:
-      'Validates JSON metadata and ownership, then returns 501. Multipart file upload is not implemented yet.',
+      'Accepts one static JPEG, PNG or WebP. Creates three WebP derivatives in storage and one image record. Omit variantId for the shared gallery.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        alt: { type: 'string' },
+        variantId: { type: 'string', format: 'uuid' },
+        sortOrder: {
+          type: 'string',
+          pattern: '^\\d+$',
+          default: '0',
+          description: 'Integer from 0 to 2147483647',
+        },
+        isPrimary: {
+          type: 'string',
+          enum: ['true', 'false'],
+          default: 'false',
+        },
+      },
+    },
   })
   @ApiParam({ name: 'productId', type: String, format: 'uuid', required: true })
-  @ApiResponse({ status: 400, description: 'Invalid product ID or metadata' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid product ID, file, metadata or multipart field limits',
+  })
   @ApiResponse({ status: 404, description: 'Product or variant not found' })
-  @ApiResponse({ status: 501, description: 'Image upload is not implemented' })
-  create(
+  @ApiResponse({ status: 201, type: ProductImagesDto })
+  @ApiResponse({
+    status: 413,
+    description: 'File exceeds its size limit',
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'Storage unavailable or image processor busy',
+  })
+  async create(
     @Param('productId', new ParseUUIDPipe()) productId: string,
-    @Body() data: CreateProductImagesDto,
+    @Body() data: UploadProductImageDto,
+    @UploadedFile(
+      new ParseFilePipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }),
+    )
+    file: Express.Multer.File,
   ) {
-    return this.productImagesService.create(productId, data);
+    const image = await this.productImagesService.create(
+      productId,
+      data,
+      file.buffer,
+    );
+    return { ...image, createdAt: image.createdAt.toISOString() };
   }
 
   @Put('product-images/id/:id')

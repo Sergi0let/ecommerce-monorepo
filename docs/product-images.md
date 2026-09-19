@@ -28,8 +28,10 @@ Admin client
 - response contract перевіряє URL, додатні dimensions і невід'ємний `sortOrder`;
 - create input містить тільки metadata; update — `alt`, `sortOrder`, `isPrimary`;
 - `POST /api/products/:productId/images` бере `productId` із route, перевіряє
-  metadata та належність variant і повертає `501 Not Implemented`;
-- заглушка приймає JSON, не приймає файл і не створює запис у БД;
+  multipart metadata та належність variant і повертає `201 Created`;
+- upload приймає один `file`, генерує три WebP, завантажує їх у storage та
+  створює один `ProductImage`; помилки upload/DB запускають компенсацію;
+- create/update використовують спільне DB-блокування продукту для primary image;
 - delete поки видаляє лише DB record, без storage cleanup.
 
 R2 adapter реалізовано: `StorageModule` підключено до `ProductImagesModule`,
@@ -39,8 +41,9 @@ headers, читання через `https://dev-images.svash.shop`, повтор
 підтвердження відсутності об'єктів через S3 API. Тимчасові test objects очищено.
 Sharp processor реалізовано й підключено через `ImagesModule`: приймає Buffer,
 перевіряє файл і повертає три WebP buffers із фактичними dimensions.
-Наступний блок — multipart endpoint, R2/DB orchestration і cleanup; storefront
-також ще потрібно реалізувати. Наявну застосовану міграцію не редагувати; додаткові
+Multipart endpoint і R2/DB orchestration реалізовано. Наступний блок — cleanup
+при видаленні image/product/variant та recovery; storefront також ще потрібно
+реалізувати. Наявну застосовану міграцію не редагувати; додаткові
 зміни БД оформлювати новими міграціями.
 
 ## 2. Доменні правила
@@ -139,8 +142,8 @@ derivatives кожного файлу генеруються послідовн�
 виклик одразу отримує `503`, без черги buffers у пам'яті. Slot звільняється
 і після успіху, і після помилки. Ліміт окремий для кожної репліки API;
 його потрібно підбирати під RAM контейнера. Він не обмежує кількість buffers,
-які майбутній multipart transport ще тільки приймає: transport limits додаються
-на етапі 3. Кожен Sharp render має timeout 15 секунд обробки;
+які multipart transport ще тільки приймає: `FileInterceptor` має окремі per-request
+limits. Кожен Sharp render має timeout 15 секунд обробки;
 це не загальний HTTP deadline і не включає очікування libuv worker.
 
 Помилки processor: `413` для перевищення byte limit, `400` для невалідного
@@ -207,9 +210,9 @@ orientation та resize, не dimensions оригіналу і не розмір
 
 ## 6. API
 
-### Цільовий upload endpoint
+### Upload endpoint
 
-Нижче описана поведінка після заміни наявної JSON-заглушки.
+JSON-заглушку замінено на multipart upload. R2 credentials залишаються на API.
 
 ```http
 POST /api/products/:productId/images
@@ -225,8 +228,9 @@ Authorization: Bearer <admin-or-manager-token>
 - `sortOrder` — optional non-negative integer, default `0`;
 - `isPrimary` — optional boolean, default `false`.
 
-У `multipart/form-data` metadata надходить рядками. У contracts потрібно явно
-розпізнавати `"true"`/`"false"` та невід'ємні цілі числа; інші значення відхиляти.
+У `multipart/form-data` metadata надходить рядками. `UploadProductImageSchema`
+у contracts явно розпізнає `"true"`/`"false"` та десяткові невід'ємні цілі числа
+до `2147483647` (PostgreSQL Int); інші значення відхиляються.
 Не використовувати `z.coerce.boolean()` для `"false"`. Не передавати `null` як
 текст для `variantId`; у FormData поле просто пропускається. `alt` у JSON update
 залишається nullable для очищення опису.
@@ -234,6 +238,14 @@ Authorization: Bearer <admin-or-manager-token>
 `productId` береться лише з route. Strict input відхиляє `storageKeyBase`, URL,
 dimensions та інші невідомі metadata-поля. Бінарний файл обробляє interceptor,
 а request metadata — спільна Zod-схема і тонкий `createZodDto`.
+
+`MulterModule.registerAsync` отримує перевірений `IMAGE_PROCESSING_CONFIG`:
+`fileSize` дорівнює `IMAGE_MAX_FILE_SIZE_BYTES`, `files: 1`, `fields: 4`,
+`parts: 6`, `fieldSize: 4096` bytes, `fieldNameSize: 100` bytes. Запит із файлом
+і всіма чотирма metadata-полями проходить. Повторені scalar-поля, вкладені
+metadata, невідоме ім'я file-поля та зайві файли відхиляються.
+Multer зберігає input у пам'яті; client MIME не визначає допустимий формат —
+це перевіряє Sharp за фактичним вмістом.
 
 Endpoint:
 
@@ -249,9 +261,18 @@ Endpoint:
 До завершення upload не тримати DB transaction відкритою. При помилках R2 або
 запису в БД виконувати cleanup згідно з розділом 10.
 
-Задокументувати у Swagger `multipart/form-data`, binary `file` і відповіді:
+Swagger описує `multipart/form-data`, binary `file` і відповіді:
 `201`, `400` (невалідний файл/metadata), `401`, `403`, `404`, `413` (ліміт
-розміру), `503` (недоступність storage). `501` прибрати після реалізації.
+розміру файлу), `503` (недоступність storage або зайнятий processor).
+Перевищення кількості multipart parts/fields/files або розміру text field дає
+`400`. Відповідь `201` перевіряється через `ZodSerializerDto(ProductImagesDto)`;
+`createdAt` перед серіалізацією перетворюється на ISO string.
+
+Для ручної перевірки у Postman: `POST` на route вище, Bearer token користувача
+`ADMIN`/`MANAGER`, Body → form-data, `file` типу File; решта полів — Text.
+`Content-Type` вручну не задавати. У dev environment перевірити три URL з
+відповіді та один DB record; ключі мають бути
+`products/{productId}/{imageId}/{thumbnail|medium|large}.webp`.
 
 ### Metadata operations
 
@@ -409,19 +430,37 @@ generate derivatives
 -> якщо DB operation failed, best-effort delete uploaded objects
 ```
 
-Якщо один із R2 uploads упав, уже завантажені objects також видаляються.
-Для паралельних uploads дочекатися завершення всіх запущених операцій перед
-cleanup, інакше пізній успішний upload може знову залишити orphan object.
-Cleanup errors не повинні маскувати початкову помилку. Логувати всі keys і
-забезпечити повторне очищення, включно з випадком завершення процесу API.
+Реалізовано послідовний upload трьох derivatives. Якщо один upload упав,
+компенсація робить best-effort delete усіх трьох server-generated keys нового
+зображення, включно з ключем невдалого PUT: storage міг прийняти bytes до
+втрати acknowledgement. Cleanup використовує `Promise.allSettled`, тому помилка
+одного delete не заважає іншим. Початкова помилка повертається клієнту;
+невидалені keys, `imageId` і `productId` логуються без buffers/secrets.
+
+Компенсація також виконується, якщо product/variant зник під час обробки або
+DB-транзакція впала. Відкочуються і insert, і зміни primary. Повторне очищення
+після збою самого cleanup, аварійного завершення процесу або невизначеного
+результату зовнішньої операції потребує recovery job з етапу 4.
+Якщо надалі uploads стануть паралельними, потрібно дочекатися завершення всіх
+запущених PUT перед компенсацією.
 
 ### Primary image і конкурентність
 
-`updateMany(isPrimary: false)` і створення/оновлення primary image виконувати
-однією транзакцією в межах `(productId, variantId)`. Звичайної транзакції з
-default isolation недостатньо для паралельних запитів. Для MVP використати
-`Serializable` та обмежені retries serialization conflicts; повторювати лише
-DB transaction, а не Sharp/R2 upload.
+`updateMany(isPrimary: false)` і створення/оновлення primary image виконуються
+однією короткою транзакцією в межах `(productId, variantId)`. Реалізація використовує
+`SELECT ... FOR UPDATE` на рядку `Product` і явно заданий `ReadCommitted`:
+create/update спочатку беруть той самий lock, навіть для порожньої галереї.
+Наступний writer читає актуальний стан після звільнення lock. Це замінює
+запланований `Serializable` із retries: менше повторних транзакцій, але metadata
+зміни різних галерей одного продукту теж короткочасно чекають одна на одну.
+Sharp/R2 виконуються до відкриття транзакції.
+
+Update повторно читає image після lock; інші primary скидаються тільки при
+явному `isPrimary: true`. Запит лише з `alt` не використовує застарілий
+`isPrimary` із попереднього читання. Shared і variant галереї не скидають
+primary одна одної. Усі нові writers primary image мають дотримуватися цього
+lock-протоколу; окремого DB unique constraint для primary image поки немає.
+Деталі механізму: [PostgreSQL row locks](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS).
 
 Тест має підтвердити не більше одного primary image у кожній галереї та
 незалежність спільної галереї від галерей варіантів.
@@ -515,7 +554,7 @@ feat(api): add R2 storage adapter and config validation
 Етап завершено: додано 28 тестів конфігурації та processor, перевірки працюють
 із реальним Sharp без R2 і БД; fixtures генеруються в пам'яті.
 `pnpm --filter api test:unit` — 61 тест разом із storage suite;
-наявні 152 e2e-тести також проходять. `POST` усе ще повертає `501` до етапу 3.
+На завершенні цього етапу також проходили наявні 152 e2e-тести.
 
 - додати `sharp`;
 - реалізувати validation і metadata inspection;
@@ -533,6 +572,13 @@ feat(api): add validated WebP image processing
 ```
 
 ### Етап 3 — multipart endpoint і заміна заглушки
+
+Етап реалізовано. Інтеграційні тести використовують реальний Sharp,
+окрему `TEST_DATABASE_URL` та fake storage без доступу до R2. Перевіряються
+формат/кількість objects і DB records, response contract, transport limits,
+authorization, ownership, компенсація upload/DB failure, помилка cleanup та
+конкурентні primary uploads/updates. Додано 35 unit- і 25 інтеграційних тестів;
+повні suites: 96 unit та 177 e2e проходять. Міграція для цього етапу не потрібна.
 
 - додати `@types/multer` як dev dependency; `@nestjs/platform-express` уже є;
 - додати `FileInterceptor` з limits і приймання одного `file`;
