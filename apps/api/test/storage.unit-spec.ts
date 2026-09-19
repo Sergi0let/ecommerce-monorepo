@@ -8,6 +8,8 @@ import {
 } from '@jest/globals';
 import {
   DeleteObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
@@ -107,7 +109,11 @@ describe('R2 storage adapter', () => {
   const send =
     jest.fn<
       (
-        command: PutObjectCommand | DeleteObjectCommand,
+        command:
+          | PutObjectCommand
+          | DeleteObjectCommand
+          | HeadObjectCommand
+          | ListObjectsV2Command,
         options: { abortSignal: AbortSignal },
       ) => Promise<unknown>
     >();
@@ -129,6 +135,85 @@ describe('R2 storage adapter', () => {
   afterEach(async () => {
     await module?.close();
     jest.restoreAllMocks();
+  });
+
+  it('reads object metadata without downloading bytes', async () => {
+    const lastModified = new Date();
+    send.mockResolvedValueOnce({ LastModified: lastModified });
+    await expect(storage.headObject(key)).resolves.toEqual({ lastModified });
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(HeadObjectCommand);
+  });
+
+  it.each(['NotFound', 'NoSuchKey'])(
+    'recognizes HEAD %s as an absent object',
+    async (name) => {
+      send.mockRejectedValueOnce(
+        new S3ServiceException({
+          name,
+          message: 'missing',
+          $fault: 'client',
+          $metadata: { httpStatusCode: 404 },
+        }),
+      );
+      await expect(storage.headObject(key)).resolves.toBeNull();
+    },
+  );
+
+  it.each([
+    { name: 'AccessDenied', status: 403 },
+    { name: 'NoSuchBucket', status: 404 },
+    { name: 'UnknownError', status: 500 },
+  ])(
+    'does not interpret $name as a missing object',
+    async ({ name, status }) => {
+      send.mockRejectedValueOnce(
+        new S3ServiceException({
+          name,
+          message: 'private',
+          $fault: 'client',
+          $metadata: { httpStatusCode: status },
+        }),
+      );
+      await expect(storage.headObject(key)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+    },
+  );
+
+  it('lists one bounded page using the supplied continuation token', async () => {
+    const lastModified = new Date();
+    send.mockResolvedValueOnce({
+      Contents: [{ Key: key, LastModified: lastModified }],
+      IsTruncated: true,
+      NextContinuationToken: 'next',
+    });
+    await expect(storage.listObjects('products/', 'cursor')).resolves.toEqual({
+      objects: [{ key, lastModified }],
+      cursor: 'next',
+    });
+    const command = send.mock.calls[0]?.[0];
+    expect(command).toBeInstanceOf(ListObjectsV2Command);
+    expect(command?.input).toEqual({
+      Bucket: config.R2_BUCKET,
+      Prefix: 'products/',
+      MaxKeys: 100,
+      ContinuationToken: 'cursor',
+    });
+  });
+
+  it('fails closed when storage pagination or timestamps are incomplete', async () => {
+    send.mockResolvedValueOnce({ IsTruncated: true });
+    await expect(storage.listObjects('products/')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    send.mockResolvedValueOnce({ Contents: [{ Key: key }] });
+    await expect(storage.listObjects('products/')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    send.mockResolvedValueOnce({});
+    await expect(storage.headObject(key)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 
   it('uploads the supplied bytes and headers and returns the public URL', async () => {

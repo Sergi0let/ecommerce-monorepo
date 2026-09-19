@@ -77,6 +77,10 @@ export class ProductImagesController {
   @ApiResponse({ status: 404, description: 'Product or variant not found' })
   @ApiResponse({ status: 201, type: ProductImagesDto })
   @ApiResponse({
+    status: 408,
+    description: 'Upload exceeded its commit window; retry with a new upload',
+  })
+  @ApiResponse({
     status: 413,
     description: 'File exceeds its size limit',
   })
@@ -115,7 +119,16 @@ export class ProductImagesController {
   @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete product image' })
-  @ApiResponse({ status: 204, description: 'Product image deleted' })
+  @ApiResponse({
+    status: 204,
+    description:
+      'Product image and storage objects deleted; repeated requests are safe',
+  })
+  @ApiResponse({
+    status: 503,
+    description:
+      'Database deletion committed; storage cleanup queued. Retry DELETE or run recovery',
+  })
   delete(@Param('id') id: string) {
     return this.productImagesService.delete(id);
   }

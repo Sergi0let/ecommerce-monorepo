@@ -14,7 +14,8 @@
     "test:unit": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-unit.json --runInBand",
     "test:e2e": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json --runInBand",
     "lint": "eslint \"{src,test}/**/*.ts\"",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "images:recover": "node dist/scripts/images-recover.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1136.0",

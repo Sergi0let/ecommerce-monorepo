@@ -32,7 +32,9 @@ Admin client
 - upload приймає один `file`, генерує три WebP, завантажує їх у storage та
   створює один `ProductImage`; помилки upload/DB запускають компенсацію;
 - create/update використовують спільне DB-блокування продукту для primary image;
-- delete поки видаляє лише DB record, без storage cleanup.
+- image/product/variant hard delete створює durable cleanup tasks та видаляє
+  DB records однією транзакцією, потім очищає R2 із retry;
+- recovery command має dry run, grace period, перевірку references і missing files.
 
 R2 adapter реалізовано: `StorageModule` підключено до `ProductImagesModule`,
 доступні `putObject`, `deleteObject`, `getPublicUrl`, startup validation та
@@ -41,9 +43,8 @@ headers, читання через `https://dev-images.svash.shop`, повтор
 підтвердження відсутності об'єктів через S3 API. Тимчасові test objects очищено.
 Sharp processor реалізовано й підключено через `ImagesModule`: приймає Buffer,
 перевіряє файл і повертає три WebP buffers із фактичними dimensions.
-Multipart endpoint і R2/DB orchestration реалізовано. Наступний блок — cleanup
-при видаленні image/product/variant та recovery; storefront також ще потрібно
-реалізувати. Наявну застосовану міграцію не редагувати; додаткові
+Multipart endpoint, hard delete cleanup та recovery реалізовано.
+Наступний блок — storefront. Наявну застосовану міграцію не редагувати; додаткові
 зміни БД оформлювати новими міграціями.
 
 ## 2. Доменні правила
@@ -311,9 +312,15 @@ apps/api/src/
     png-animation.ts
   modules/product-images/
     dto/
+    image-cleanup.service.ts
+    image-recovery.service.ts
+    image-storage.utils.ts
+    product-image-storage.module.ts
     product-images.controller.ts
     product-images.service.ts
     product-images.module.ts
+  scripts/
+    images-recover.ts
 
 packages/contracts/src/product-images/
   inputs/
@@ -329,6 +336,10 @@ packages/contracts/src/product-images/
   для derivatives використовуються `image/webp` та immutable cache policy;
 - `ImageProcessorService` — validation metadata і генерація derivatives;
 - `ProductImagesService` — ownership, primary image, DB/R2 orchestration;
+- `ImageCleanupService` — transactional cleanup outbox, retry і безпечне видалення keys;
+- `ImageRecoveryService` — pagination, grace period, orphan і missing-file перевірки;
+- `ProductImageStorageModule` — cleanup/recovery без HTTP guards; спільний для
+  Product, ProductVariant, ProductImages і CLI;
 - `@repo/contracts` — request metadata і HTTP response schemas;
 - controller — multipart transport, guards і Swagger.
 
@@ -430,19 +441,22 @@ generate derivatives
 -> якщо DB operation failed, best-effort delete uploaded objects
 ```
 
-Реалізовано послідовний upload трьох derivatives. Якщо один upload упав,
-компенсація робить best-effort delete усіх трьох server-generated keys нового
-зображення, включно з ключем невдалого PUT: storage міг прийняти bytes до
-втрати acknowledgement. Cleanup використовує `Promise.allSettled`, тому помилка
-одного delete не заважає іншим. Початкова помилка повертається клієнту;
-невидалені keys, `imageId` і `productId` логуються без buffers/secrets.
+Upload трьох derivatives послідовний. Якщо PUT або DB-транзакція впали,
+API спочатку перевіряє, чи image record усе-таки існує: втрачений commit
+acknowledgement не означає rollback. Якщо запис існує, його objects не видаляються.
+Якщо БД недоступна і результат commit невідомий, objects зберігаються до recovery.
 
-Компенсація також виконується, якщо product/variant зник під час обробки або
-DB-транзакція впала. Відкочуються і insert, і зміни primary. Повторне очищення
-після збою самого cleanup, аварійного завершення процесу або невизначеного
-результату зовнішньої операції потребує recovery job з етапу 4.
-Якщо надалі uploads стануть паралельними, потрібно дочекатися завершення всіх
-запущених PUT перед компенсацією.
+За відсутності record створюються `ImageCleanupTask` для всіх трьох keys,
+включно з ключем невдалого PUT: storage міг прийняти bytes до втрати відповіді.
+Далі виконується cleanup із retry. Початкова upload-помилка не маскується;
+невидалені keys та IDs логуються. Durable task переживає перезапуск API.
+Якщо task не вдалося записати через недоступність БД або процес завершився
+раніше, aged orphan objects знайде recovery scan.
+
+Після Sharp upload має 5-хвилинне вікно для DB commit. Deadline повторно
+перевіряється після product lock, перед insert; прострочений upload отримує
+`408` і запускає компенсацію. Мінімальна recovery grace — 1 година, default —
+24 години. Це не дає дуже пізньому upload створити record для вже очищених keys.
 
 ### Primary image і конкурентність
 
@@ -467,40 +481,88 @@ lock-протоколу; окремого DB unique constraint для primary im
 
 ### Delete
 
-Рекомендований порядок:
+Реалізовано DB-first delete з transactional outbox замість попереднього
+storage-first плану. Це дозволяє не тримати DB transaction під час R2-запитів
+і не втрачати список objects після cascade або перезапуску процесу.
 
-1. знайти DB record;
-2. видалити R2 objects;
-3. видалити DB record.
+1. Коротка `ReadCommitted` transaction бере product row lock.
+2. Перевіряє право видалення (зокрема останній/default variant) і збирає images.
+3. Для кожного image створює три `ImageCleanupTask` та видаляє DB records.
+4. Після commit виконує R2 deletes. Відсутній object — успіх.
+5. Успішний delete прибирає task; невдалий лишає його для retry.
 
-Видалення об'єктів, яких уже немає, вважати успішним. При частковому R2 failure
-залишити DB record для retry; при DB failure після успішного R2 delete повторний
-запит має завершити видалення запису. Тимчасово record може посилатися на відсутні
-файли — це обмеження синхронного MVP, а не атомарне видалення.
+`ImageCleanupTask` містить `key`, `productId`, `imageId`, nullable `variantId`,
+`attempts`, `nextAttemptAt`, `createdAt`. Foreign keys навмисно відсутні:
+завдання повинні переживати видалення агрегату. Міграція:
+`20260919194613_add_image_cleanup_tasks`.
 
-Якщо потрібна вища доступність, advanced implementation використовує стан
-`PENDING_DELETE` і outbox/queue. Для MVP синхронний delete прийнятний, але
-потрібна періодична job для пошуку orphan objects.
+Кожен key має до трьох спроб з паузами 100/200 ms; SDK також має власний retry.
+Після невдачі наступна job-спроба доступна через хвилину. Повторний DELETE
+явно запускає cleanup одразу, не чекаючи `nextAttemptAt`. Якщо cleanup не
+завершений, endpoint повертає `503`, але DB deletion уже committed.
+Повторний запит до вже видаленого image/product/variant дає `204`, коли pending
+tasks завершені. При DB failure до commit ні records, ні tasks не змінюються;
+R2 cleanup не починається. Збій підтвердження task після успішного R2 delete
+також безпечний: наступний retry повторить idempotent delete.
 
-Cascade delete Product/Variant у PostgreSQL сам по собі не видалить objects із
-R2. Поточні `ProductService.delete` і `ProductVariantService.delete` виконують
-hard delete: потрібно додати storage cleanup до фактичного видалення агрегату,
-зберігши правила останнього/default variant. Перед cleanup перевірити, що
-видалення дозволене; upload і delete одного агрегату не повинні створювати orphan
-objects через гонку. Не тримати DB transaction відкритою під час R2-запитів.
+Keys будуються лише зі збереженого `storageKeyBase`; додатково звіряються з
+`productId` та `imageId`. Невідповідний prefix дає `409` до видалення файлів.
+Product hard delete очищає всі його галереї; variant hard delete — лише власну.
+Variant create/update/delete використовують той самий product lock, тому
+конкурентні delete не обходять правило останнього варіанта/default.
 
-Якщо буде запроваджено soft delete через `deletedAt`, файли зберігати до
-остаточного видалення: вони потрібні для відновлення продукту.
+Якщо upload committed першим, aggregate delete бачить image й додає tasks.
+Якщо delete committed першим, upload повторно перевіряє ownership, відхиляється
+й компенсує PUTs. Storage calls завжди поза DB transaction.
 
-### Recovery перед production rollout
+`Product.deletedAt` уже є у схемі; новий soft-delete endpoint тут не вводиться.
+Зміна `deletedAt` або `isActive` не створює cleanup tasks. Recovery перевіряє
+DB references без фільтра active/deletedAt, тому файли зберігаються для restore.
 
-- додати retry очищення та orphan cleanup command/job;
-- command має спочатку підтримувати dry run зі списком keys;
-- обробляти лише відомі product-image prefixes у відповідному bucket;
-- пропускати свіжі об'єкти протягом grace period, довшого за максимальну
-  тривалість upload і DB retries, щоб не видаляти незавершені uploads;
-- перевіряти наявність DB reference перед видаленням, не покладатися лише на logs;
-- окремо виявляти DB records із відсутніми файлами після часткового delete.
+### Recovery command
+
+Після зміни коду спочатку `pnpm --filter api build`. Команди з кореня repo:
+
+```bash
+# Read-only report: due tasks, aged orphan keys, records with missing files.
+pnpm --filter api images:recover
+
+# Apply queued cleanup and delete orphan objects older than 24 hours.
+pnpm --filter api images:recover --apply --grace-hours 24
+
+# Additionally delete incomplete image records and their remaining derivatives.
+pnpm --filter api images:recover --apply --remove-broken-records --grace-hours 24
+
+pnpm --filter api images:recover --help
+```
+
+Command читає `apps/api/.env` / environment для DATABASE_URL і R2; спільний
+database client також підхоплює `packages/database/.env`, якщо DATABASE_URL
+ще не задано. Перевіряти
+development слід з dev bucket; production job має використовувати парну
+production DB/bucket конфігурацію. Dry run не змінює tasks, records або objects.
+`--remove-broken-records` без `--apply` також лише звітує. Grace задається у
+годинах, дозволений діапазон 1–8760; default 24.
+
+Спочатку обробляються due tasks, потім paginated LIST лише `products/`.
+Дозволені тільки canonical keys
+`products/{productUuid}/{imageUuid}/{thumbnail|medium|large}.webp`.
+Перед orphan delete перевіряються DB reference та актуальний HEAD timestamp;
+свіжі objects і keys інших форматів пропускаються. Для orphan теж записується
+durable task. Повторні workers можуть безпечно виконати той самий delete.
+
+Окремий paginated scan перевіряє HEAD трьох derivatives у старих DB records.
+Відсутні файли потрапляють у `missing-files` report; `403`/network/storage errors
+є failures, а не ознакою відсутності. Без `--remove-broken-records` DB records
+залишаються. З цим прапорцем весь неповний image видаляється через звичайний
+outbox flow; втрачені pixels автоматично не відновлюються — потрібен backup
+або повторний upload оригіналу. Перед destructive режимом переглянути dry run.
+
+Вивід містить JSON events і summary; exit code 1 означає failure. Logs містять
+keys, IDs і attempt/result без buffers та credentials. Команда придатна для
+cron/systemd timer або scheduler платформи; розклад автоматично не встановлюється.
+Пам'ять обмежена сторінками по 100 DB/storage записів, обробка послідовна.
+CDN може ще віддавати кешований файл після видалення origin object.
 
 ## 11. Storefront integration
 
@@ -600,6 +662,13 @@ feat(api): implement multipart product image uploads
 ```
 
 ### Етап 4 — видалення і recovery
+
+Етап реалізовано з durable outbox і command. Перевірки охоплюють image/product/
+variant deletion, partial failures і retry, upload/delete races, soft-delete
+references, paginated orphan scan, dry run, grace, missing files і HEAD errors.
+Міграцію застосовано до development і `market_cosmo_test`. Перевірки:
+106 unit + 195 e2e, typecheck, lint і build; реальний dev recovery dry run
+завершився з `dryRun: true, failures: 0`, без змін даних.
 
 - видаляти три derivatives за server-owned `storageKeyBase`;
 - забезпечити повторне виконання після часткового storage/DB failure;

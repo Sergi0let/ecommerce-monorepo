@@ -1,5 +1,7 @@
 import {
   DeleteObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
@@ -73,6 +75,54 @@ export class R2StorageService implements ObjectStorage, OnModuleDestroy {
   getPublicUrl(key: string): string {
     this.assertValidKey(key);
     return `${this.config.R2_PUBLIC_BASE_URL}/${key}`;
+  }
+
+  async headObject(key: string): Promise<{ lastModified: Date } | null> {
+    this.assertValidKey(key);
+    try {
+      const result = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.config.R2_BUCKET, Key: key }),
+        { abortSignal: AbortSignal.timeout(30_000) },
+      );
+      if (!result.LastModified) throw new Error('Missing object timestamp');
+      return { lastModified: result.LastModified };
+    } catch (error) {
+      if (
+        error instanceof S3ServiceException &&
+        error.$metadata.httpStatusCode === 404 &&
+        ['NotFound', 'NoSuchKey'].includes(error.name)
+      )
+        return null;
+      this.handleStorageError('headObject', key, error);
+    }
+  }
+
+  async listObjects(prefix: string, cursor?: string) {
+    this.assertValidKey(prefix.replace(/\/$/, ''));
+    try {
+      const result = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.config.R2_BUCKET,
+          Prefix: prefix,
+          ContinuationToken: cursor,
+          MaxKeys: 100,
+        }),
+        { abortSignal: AbortSignal.timeout(30_000) },
+      );
+      if (result.IsTruncated && !result.NextContinuationToken)
+        throw new Error('Missing continuation token');
+      const objects = (result.Contents ?? []).map((object) => {
+        if (!object.Key || !object.LastModified)
+          throw new Error('Incomplete object listing');
+        return { key: object.Key, lastModified: object.LastModified };
+      });
+      return {
+        objects,
+        cursor: result.IsTruncated ? result.NextContinuationToken : undefined,
+      };
+    } catch (error) {
+      this.handleStorageError('listObjects', prefix, error);
+    }
   }
 
   onModuleDestroy(): void {

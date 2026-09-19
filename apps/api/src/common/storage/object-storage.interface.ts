@@ -16,4 +16,12 @@ export interface ObjectStorage {
   putObject(input: PutObjectInput): Promise<StoredObject>;
   deleteObject(key: string): Promise<void>;
   getPublicUrl(key: string): string;
+  headObject(key: string): Promise<{ lastModified: Date } | null>;
+  listObjects(
+    prefix: string,
+    cursor?: string,
+  ): Promise<{
+    objects: Array<{ key: string; lastModified: Date }>;
+    cursor?: string;
+  }>;
 }

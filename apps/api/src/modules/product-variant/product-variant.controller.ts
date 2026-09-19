@@ -46,6 +46,11 @@ export class ProductVariantController {
   @ApiOperation({ summary: 'Delete product variant' })
   @ApiResponse({ status: 204, description: 'Delete product variant by id' })
   @ApiResponse({ status: 409, description: 'Cannot delete the last variant' })
+  @ApiResponse({
+    status: 503,
+    description:
+      'Variant deleted; storage cleanup queued. Retry DELETE or run recovery',
+  })
   delete(@Param('id') id: string) {
     return this.productVariantService.delete(id);
   }

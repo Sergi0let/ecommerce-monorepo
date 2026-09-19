@@ -35,9 +35,17 @@ import {
 } from '../src/common/storage/object-storage.interface';
 import { MailService } from '../src/modules/mail/mail.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import {
+  ImageRecoveryService,
+  type RecoveryEvent,
+} from '../src/modules/product-images/image-recovery.service';
+import { ImageCleanupService } from '../src/modules/product-images/image-cleanup.service';
 
 class MemoryStorage implements ObjectStorage {
   readonly objects = new Map<string, PutObjectInput>();
+  readonly modifiedAt = new Map<string, Date>();
+  failHead = false;
+  failDeleteCount = 0;
   readonly puts: string[] = [];
   readonly deletes: string[] = [];
   failPutSuffix: string | undefined;
@@ -51,6 +59,7 @@ class MemoryStorage implements ObjectStorage {
   async putObject(input: PutObjectInput) {
     this.puts.push(input.key);
     this.objects.set(input.key, input);
+    this.modifiedAt.set(input.key, new Date());
     await this.afterPut?.();
     // Simulate bytes stored but the acknowledgement lost.
     if (this.failPutSuffix && input.key.endsWith(this.failPutSuffix)) {
@@ -61,7 +70,10 @@ class MemoryStorage implements ObjectStorage {
 
   deleteObject(key: string): Promise<void> {
     this.deletes.push(key);
-    if (this.failDeleteSuffix && key.endsWith(this.failDeleteSuffix)) {
+    if (
+      this.failDeleteCount-- > 0 ||
+      (this.failDeleteSuffix && key.endsWith(this.failDeleteSuffix))
+    ) {
       return Promise.reject(new Error('Simulated cleanup failure'));
     }
     this.objects.delete(key);
@@ -75,6 +87,35 @@ class MemoryStorage implements ObjectStorage {
     this.failPutSuffix = undefined;
     this.failDeleteSuffix = undefined;
     this.afterPut = undefined;
+    this.modifiedAt.clear();
+    this.failHead = false;
+    this.failDeleteCount = 0;
+  }
+
+  headObject(key: string) {
+    if (this.failHead)
+      return Promise.reject(
+        new ServiceUnavailableException('Storage unavailable'),
+      );
+    return Promise.resolve(
+      this.objects.has(key)
+        ? { lastModified: this.modifiedAt.get(key) ?? new Date() }
+        : null,
+    );
+  }
+
+  listObjects(prefix: string, cursor?: string) {
+    const all = [...this.objects.keys()]
+      .sort()
+      .filter((key) => key.startsWith(prefix) && (!cursor || key > cursor));
+    const keys = all.slice(0, 2);
+    return Promise.resolve({
+      objects: keys.map((key) => ({
+        key,
+        lastModified: this.modifiedAt.get(key) ?? new Date(),
+      })),
+      cursor: all.length > 2 ? keys.at(-1) : undefined,
+    });
   }
 }
 
@@ -90,11 +131,24 @@ describe('Product image multipart integration', () => {
   const tokens = new Map<UserRole, string>();
   const userIds: number[] = [];
   let failCreate = false;
+  let failDelete = false;
+  let failTaskAck = false;
   const database = prisma.$extends({
     query: {
       productImage: {
+        delete({ args, query }) {
+          if (failDelete) throw new Error('Simulated database delete failure');
+          return query(args);
+        },
         create({ args, query }) {
           if (failCreate) throw new Error('Simulated database insert failure');
+          return query(args);
+        },
+      },
+      imageCleanupTask: {
+        deleteMany({ args, query }) {
+          if (failTaskAck)
+            throw new Error('Simulated cleanup acknowledgement failure');
           return query(args);
         },
       },
@@ -195,7 +249,12 @@ describe('Product image multipart integration', () => {
   beforeEach(async () => {
     storage.reset();
     failCreate = false;
+    failDelete = false;
+    failTaskAck = false;
     await prisma.productImage.deleteMany({ where: { product: { brandId } } });
+    await prisma.imageCleanupTask.deleteMany({
+      where: { productId: { in: [productId, otherProductId] } },
+    });
   });
 
   afterEach(() => {
@@ -207,6 +266,9 @@ describe('Product image multipart integration', () => {
       await prisma.product.deleteMany({ where: { brandId } });
       await prisma.brand.deleteMany({ where: { id: brandId } });
       await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+      await prisma.imageCleanupTask.deleteMany({
+        where: { productId: { in: [productId, otherProductId] } },
+      });
     } finally {
       await app?.close();
       await prisma.$disconnect();
@@ -398,7 +460,7 @@ describe('Product image multipart integration', () => {
         .attach('file', photo, 'photo.jpg')
         .expect(503);
       expect(response.body.message).toBe('Simulated storage upload failure');
-      expect(storage.deletes).toHaveLength(3);
+      expect(storage.deletes).toHaveLength(5);
       expect(storage.objects.size).toBe(1);
       expect(log).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -489,6 +551,376 @@ describe('Product image multipart integration', () => {
     expect(
       await prisma.productImage.findUnique({ where: { id: oldPrimary.id } }),
     ).toMatchObject({ isPrimary: false, alt: 'Updated alt' });
+  });
+
+  const remove = (path: string) =>
+    request(app.getHttpServer())
+      .delete(`/api/${path}`)
+      .auth(token(), { type: 'bearer' });
+  const recover = async (apply = false, removeBrokenRecords = false) => {
+    const events: RecoveryEvent[] = [];
+    const result = await app
+      .get(ImageRecoveryService)
+      .run({ apply, removeBrokenRecords, graceHours: 1 }, (event) =>
+        events.push(event),
+      );
+    return { ...result, events };
+  };
+  const old = new Date(Date.now() - 2 * 3600_000);
+  const addOrphan = (
+    key = `products/${productId}/${randomUUID()}/large.webp`,
+    lastModified = old,
+  ) => {
+    storage.objects.set(key, { key, body: photo, contentType: 'image/webp' });
+    storage.modifiedAt.set(key, lastModified);
+    return key;
+  };
+
+  it('deletes only the requested image and supports repeated DELETE', async () => {
+    const image = await createImage();
+    const neighbor = await createImage({ variantId });
+    await remove(`product-images/${image.id}`).expect(204);
+    await remove(`product-images/${image.id}`).expect(204);
+    expect(storage.objects.size).toBe(3);
+    expect(
+      [...storage.objects.keys()].every((key) =>
+        key.startsWith(neighbor.storageKeyBase),
+      ),
+    ).toBe(true);
+    expect(
+      await prisma.imageCleanupTask.count({ where: { imageId: image.id } }),
+    ).toBe(0);
+  });
+
+  it('persists failed cleanup and completes it on a repeated DELETE', async () => {
+    const image = await createImage();
+    storage.failDeleteSuffix = '/medium.webp';
+    await remove(`product-images/${image.id}`).expect(503);
+    expect(
+      await prisma.productImage.findUnique({ where: { id: image.id } }),
+    ).toBeNull();
+    expect(storage.objects.size).toBe(1);
+    expect(
+      await prisma.imageCleanupTask.findMany({ where: { imageId: image.id } }),
+    ).toEqual([
+      expect.objectContaining({
+        key: `${image.storageKeyBase}/medium.webp`,
+        attempts: 3,
+      }),
+    ]);
+    storage.failDeleteSuffix = undefined;
+    await remove(`product-images/${image.id}`).expect(204);
+    expect(storage.objects.size).toBe(0);
+  });
+
+  it('retries transient storage failures inside the request', async () => {
+    const image = await createImage();
+    storage.failDeleteCount = 1;
+    await remove(`product-images/${image.id}`).expect(204);
+    expect(storage.deletes).toHaveLength(4);
+    expect(storage.objects.size).toBe(0);
+  });
+
+  it('rolls back deletion and outbox atomically on a database failure', async () => {
+    const image = await createImage();
+    failDelete = true;
+    await remove(`product-images/${image.id}`).expect(500);
+    expect(storage.deletes).toHaveLength(0);
+    expect(
+      await prisma.productImage.findUnique({ where: { id: image.id } }),
+    ).not.toBeNull();
+    expect(
+      await prisma.imageCleanupTask.count({ where: { imageId: image.id } }),
+    ).toBe(0);
+    failDelete = false;
+    await remove(`product-images/${image.id}`).expect(204);
+  });
+
+  it('retries DB acknowledgement failure after the objects were already removed', async () => {
+    const image = await createImage();
+    failTaskAck = true;
+    await remove(`product-images/${image.id}`).expect(503);
+    expect(storage.objects.size).toBe(0);
+    expect(
+      await prisma.imageCleanupTask.count({ where: { imageId: image.id } }),
+    ).toBe(3);
+    failTaskAck = false;
+    await remove(`product-images/${image.id}`).expect(204);
+    expect(
+      await prisma.imageCleanupTask.count({ where: { imageId: image.id } }),
+    ).toBe(0);
+  });
+
+  it('protects foreign storage keys even if a DB record is inconsistent', async () => {
+    const image = await createImage();
+    const foreign = await createImage();
+    await prisma.productImage.update({
+      where: { id: image.id },
+      data: { storageKeyBase: `products/${otherProductId}/${image.id}` },
+    });
+    await remove(`product-images/${image.id}`).expect(409);
+    expect(storage.deletes).toHaveLength(0);
+    expect(storage.objects.has(`${foreign.storageKeyBase}/large.webp`)).toBe(
+      true,
+    );
+  });
+
+  it('deletes a variant gallery, preserves shared/other galleries and the last-variant rule', async () => {
+    const temporary = await prisma.productVariant.create({
+      data: { productId, slug: randomUUID(), sku: randomUUID() },
+    });
+    const shared = await createImage();
+    const other = await createImage({ variantId });
+    const removed = await createImage({ variantId: temporary.id });
+    await remove(`product-variants/${temporary.id}`).expect(204);
+    await remove(`product-variants/${temporary.id}`).expect(204);
+    expect(storage.objects.size).toBe(6);
+    expect(storage.objects.has(`${removed.storageKeyBase}/large.webp`)).toBe(
+      false,
+    );
+    expect(storage.objects.has(`${shared.storageKeyBase}/large.webp`)).toBe(
+      true,
+    );
+    expect(storage.objects.has(`${other.storageKeyBase}/large.webp`)).toBe(
+      true,
+    );
+    await remove(`product-variants/${variantId}`).expect(409);
+    expect(storage.objects.size).toBe(6);
+  });
+
+  it('keeps one default variant during concurrent variant deletions', async () => {
+    const temporary = await prisma.product.create({
+      data: {
+        name: 'Delete race',
+        slug: randomUUID(),
+        brandId,
+        variants: {
+          create: [
+            { slug: randomUUID(), sku: randomUUID(), isDefault: true },
+            { slug: randomUUID(), sku: randomUUID() },
+          ],
+        },
+      },
+      include: { variants: true },
+    });
+    const responses = await Promise.all(
+      temporary.variants.map((variant) =>
+        remove(`product-variants/${variant.id}`),
+      ),
+    );
+    expect(responses.map(({ status }) => status).sort()).toEqual([204, 409]);
+    const remaining = await prisma.productVariant.findMany({
+      where: { productId: temporary.id },
+    });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.isDefault).toBe(true);
+  });
+
+  it('cascades product cleanup across all its galleries without touching another product', async () => {
+    const temporary = await prisma.product.create({
+      data: {
+        name: 'Delete product',
+        slug: randomUUID(),
+        brandId,
+        variants: {
+          create: { slug: randomUUID(), sku: randomUUID(), isDefault: true },
+        },
+      },
+      include: { variants: true },
+    });
+    const shared = await upload(temporary.id)
+      .attach('file', photo, 'photo.jpg')
+      .expect(201);
+    await upload(temporary.id)
+      .field('variantId', temporary.variants[0]!.id)
+      .attach('file', photo, 'photo.jpg')
+      .expect(201);
+    const keep = await createImage();
+    storage.failDeleteSuffix = '/large.webp';
+    await remove(`products/${temporary.id}`).expect(503);
+    expect(
+      await prisma.product.findUnique({ where: { id: temporary.id } }),
+    ).toBeNull();
+    storage.failDeleteSuffix = undefined;
+    await remove(`products/${temporary.id}`).expect(204);
+    expect(storage.objects.size).toBe(3);
+    expect(storage.objects.has(`${keep.storageKeyBase}/large.webp`)).toBe(true);
+    expect(
+      storage.objects.has(
+        `${ProductImageSchema.parse(shared.body).storageKeyBase}/large.webp`,
+      ),
+    ).toBe(false);
+  });
+
+  it('compensates an upload that finishes after its product was deleted', async () => {
+    const temporary = await prisma.product.create({
+      data: {
+        name: 'Upload race',
+        slug: randomUUID(),
+        brandId,
+        variants: {
+          create: { slug: randomUUID(), sku: randomUUID(), isDefault: true },
+        },
+      },
+    });
+    storage.afterPut = async () => {
+      storage.afterPut = undefined;
+      await remove(`products/${temporary.id}`).expect(204);
+    };
+    await upload(temporary.id).attach('file', photo, 'photo.jpg').expect(404);
+    expect(storage.objects.size).toBe(0);
+    expect(
+      await prisma.imageCleanupTask.count({
+        where: { productId: temporary.id },
+      }),
+    ).toBe(0);
+  });
+
+  it('compensates an upload that finishes after its variant was deleted', async () => {
+    const temporary = await prisma.productVariant.create({
+      data: { productId, sku: randomUUID(), slug: randomUUID() },
+    });
+    storage.afterPut = async () => {
+      storage.afterPut = undefined;
+      await remove(`product-variants/${temporary.id}`).expect(204);
+    };
+    await upload()
+      .field('variantId', temporary.id)
+      .attach('file', photo, 'photo.jpg')
+      .expect(404);
+    expect(storage.objects.size).toBe(0);
+  });
+
+  it('protects active, soft-deleted and fresh objects and scans paginated orphan listings', async () => {
+    const image = await createImage();
+    await prisma.product.update({
+      where: { id: productId },
+      data: { deletedAt: old },
+    });
+    await prisma.productImage.update({
+      where: { id: image.id },
+      data: { createdAt: old },
+    });
+    for (const key of storage.objects.keys()) storage.modifiedAt.set(key, old);
+    const orphans = [addOrphan(), addOrphan(), addOrphan()];
+    const fresh = addOrphan(undefined, new Date());
+    const unrelated = addOrphan('products/manual-upload.webp');
+    const dry = await recover();
+    expect(dry.dryRun).toBe(true);
+    expect(dry.events.filter(({ kind }) => kind === 'orphan')).toHaveLength(3);
+    expect(storage.deletes).toHaveLength(0);
+    expect(await prisma.imageCleanupTask.count({ where: { productId } })).toBe(
+      0,
+    );
+    const result = await recover(true);
+    expect(result.failures).toBe(0);
+    for (const key of orphans) expect(storage.objects.has(key)).toBe(false);
+    for (const key of [fresh, unrelated, `${image.storageKeyBase}/large.webp`])
+      expect(storage.objects.has(key)).toBe(true);
+    await prisma.product.update({
+      where: { id: productId },
+      data: { deletedAt: null },
+    });
+  });
+
+  it('reports missing derivatives and removes broken records only with the explicit option', async () => {
+    const image = await createImage();
+    await prisma.productImage.update({
+      where: { id: image.id },
+      data: { createdAt: old },
+    });
+    storage.objects.delete(`${image.storageKeyBase}/medium.webp`);
+    expect((await recover()).events).toContainEqual({
+      kind: 'missing-files',
+      imageId: image.id,
+      keys: [`${image.storageKeyBase}/medium.webp`],
+    });
+    await recover(true);
+    expect(
+      await prisma.productImage.findUnique({ where: { id: image.id } }),
+    ).not.toBeNull();
+    await recover(false, true);
+    expect(storage.deletes).toHaveLength(0);
+    await recover(true, true);
+    expect(
+      await prisma.productImage.findUnique({ where: { id: image.id } }),
+    ).toBeNull();
+    expect(storage.objects.size).toBe(0);
+  });
+
+  it('does not treat a HEAD permission/network failure as a missing file', async () => {
+    const image = await createImage();
+    await prisma.productImage.update({
+      where: { id: image.id },
+      data: { createdAt: old },
+    });
+    storage.failHead = true;
+    const result = await recover(true, true);
+    expect(result.failures).toBe(1);
+    expect(result.events).not.toContainEqual(
+      expect.objectContaining({ kind: 'missing-files' }),
+    );
+    expect(storage.deletes).toHaveLength(0);
+  });
+
+  it('recovers a persisted cleanup task after a failed delete', async () => {
+    const image = await createImage();
+    storage.failDeleteSuffix = '/large.webp';
+    await remove(`product-images/${image.id}`).expect(503);
+    storage.failDeleteSuffix = undefined;
+    await prisma.imageCleanupTask.updateMany({
+      where: { imageId: image.id },
+      data: { nextAttemptAt: old },
+    });
+    const dry = await recover();
+    expect(dry.events).toContainEqual({
+      kind: 'pending-cleanup',
+      key: `${image.storageKeyBase}/large.webp`,
+    });
+    expect(storage.objects.size).toBe(1);
+    await recover(true);
+    expect(storage.objects.size).toBe(0);
+  });
+
+  it('rejects expired uploads before commit so recovery cannot race a late insert', async () => {
+    const now = Date.now();
+    let clock: ReturnType<typeof jest.spyOn> | undefined;
+    storage.afterPut = async () => {
+      if (storage.puts.length === 3)
+        clock = jest.spyOn(Date, 'now').mockReturnValue(now + 6 * 60_000);
+    };
+    try {
+      await upload().attach('file', photo, 'photo.jpg').expect(408);
+      expect(storage.objects.size).toBe(0);
+      expect(await prisma.productImage.count({ where: { productId } })).toBe(0);
+    } finally {
+      clock?.mockRestore();
+    }
+  });
+
+  it('rechecks object age after LIST before deleting an orphan', async () => {
+    const key = addOrphan();
+    const head = jest
+      .spyOn(storage, 'headObject')
+      .mockResolvedValueOnce({ lastModified: new Date() });
+    try {
+      await recover(true);
+      expect(storage.objects.has(key)).toBe(true);
+      expect(storage.deletes).toHaveLength(0);
+    } finally {
+      head.mockRestore();
+    }
+  });
+
+  it('never executes a stale cleanup task for a referenced image', async () => {
+    const image = await createImage();
+    const key = `${image.storageKeyBase}/large.webp`;
+    await prisma.imageCleanupTask.create({
+      data: { key, productId, imageId: image.id },
+    });
+    await app.get(ImageCleanupService).execute(key);
+    expect(storage.deletes).toHaveLength(0);
+    expect(storage.objects.size).toBe(3);
   });
 
   it('documents multipart, binary file, metadata, authorization and responses', () => {

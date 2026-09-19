@@ -264,6 +264,22 @@ model ProductImage {
   @@index([isPrimary])
 }
 
+// Durable storage cleanup outbox; deliberately survives Product/Image cascades.
+model ImageCleanupTask {
+  key           String   @id
+  productId     String
+  imageId       String
+  variantId     String?
+  createdAt     DateTime @default(now())
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([imageId])
+  @@index([nextAttemptAt])
+}
+
 model Warehouse {
   id        String  @id @default(uuid())
   name      String

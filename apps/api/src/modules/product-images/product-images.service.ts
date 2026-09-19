@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  RequestTimeoutException,
+} from '@nestjs/common';
+import { IMAGE_UPLOAD_COMMIT_WINDOW_MS } from '@repo/contracts';
 import type { Prisma } from '@repo/database';
 import { randomUUID } from 'node:crypto';
 import { ImageProcessorService } from '../../common/images/image-processor.service';
@@ -9,6 +16,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductImagesDto } from './dto/create-product-images.dto';
 import { UpdateProductImagesDto } from './dto/update-product-images.dto';
+import { ImageCleanupService } from './image-cleanup.service';
+import { lockImageProduct } from './image-storage.utils';
 
 @Injectable()
 export class ProductImagesService {
@@ -17,6 +26,7 @@ export class ProductImagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly imageProcessor: ImageProcessorService,
+    private readonly cleanup: ImageCleanupService,
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
 
@@ -26,6 +36,7 @@ export class ProductImagesService {
 
     const derivatives = await this.imageProcessor.process(file);
     const imageId = randomUUID();
+    const commitDeadline = Date.now() + IMAGE_UPLOAD_COMMIT_WINDOW_MS;
     const storageKeyBase = `products/${productId}/${imageId}`;
     const keys = {
       thumbnail: `${storageKeyBase}/thumbnail.webp`,
@@ -47,6 +58,10 @@ export class ProductImagesService {
       const image = await this.prisma.client.$transaction(
         async (transaction) => {
           await this.lockProduct(transaction, productId);
+          if (Date.now() > commitDeadline)
+            throw new RequestTimeoutException(
+              'Image upload expired; upload the file again',
+            );
           // The product/variant may have been deleted while Sharp/R2 was running.
           await this.assertOwnerExists(productId, variantId, transaction);
           if (data.isPrimary) {
@@ -83,7 +98,12 @@ export class ProductImagesService {
       return image;
     } catch (error) {
       // Include failed/unacknowledged PUTs: storage may have accepted their bytes.
-      await this.cleanupUpload(Object.values(keys), productId, imageId);
+      await this.cleanupUpload(
+        Object.values(keys),
+        productId,
+        imageId,
+        variantId,
+      );
       throw error;
     }
   }
@@ -126,11 +146,7 @@ export class ProductImagesService {
   }
 
   async delete(id: string) {
-    this.logger.log(`Deleting product image ${id}`);
-
-    await this.getById(id);
-
-    return this.prisma.client.productImage.delete({ where: { id } });
+    await this.cleanup.deleteImage(id);
   }
 
   getAll() {
@@ -157,9 +173,7 @@ export class ProductImagesService {
   ) {
     // All image creates/updates take the same lock, including an empty gallery.
     // READ COMMITTED gives subsequent queries a fresh snapshot after waiting.
-    const rows = await transaction.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE
-    `;
+    const rows = await lockImageProduct(transaction, productId);
     if (rows.length === 0) {
       throw new NotFoundException(`Product with ID ${productId} not found`);
     }
@@ -169,21 +183,53 @@ export class ProductImagesService {
     keys: string[],
     productId: string,
     imageId: string,
+    variantId: string | null,
   ) {
-    const results = await Promise.allSettled(
-      keys.map(async (key) => this.storage.deleteObject(key)),
-    );
-    const failedKeys = keys.filter(
-      (_, index) => results[index]?.status === 'rejected',
-    );
-    if (failedKeys.length > 0) {
+    try {
+      // A failed transaction acknowledgement may still mean it committed.
+      const queued = await this.prisma.client.$transaction(
+        async (transaction) => {
+          // Wait for any uncertain upload commit to release its product lock.
+          await lockImageProduct(transaction, productId);
+          if (
+            await transaction.productImage.findUnique({
+              where: { id: imageId },
+            })
+          )
+            return false;
+          await transaction.imageCleanupTask.createMany({
+            data: keys.map((key) => ({ key, productId, imageId, variantId })),
+            skipDuplicates: true,
+          });
+          return true;
+        },
+        { isolationLevel: 'ReadCommitted' },
+      );
+      if (!queued) return;
+      const failed = await this.cleanup.drain({ imageId }, false);
+      if (failed) {
+        const pending = await this.prisma.client.imageCleanupTask.findMany({
+          where: { imageId },
+          select: { key: true },
+        });
+        this.logger.error({
+          message: 'Upload cleanup pending retry',
+          productId,
+          imageId,
+          keys: pending.map(({ key }) => key),
+        });
+      }
+      return;
+    } catch {
+      // If the DB is unavailable, preserve objects: the commit outcome is unknown.
+      // Recovery will inspect aged objects against DB references later.
       this.logger.error({
-        message:
-          'Product image upload compensation incomplete; storage cleanup required',
+        message: 'Upload cleanup deferred; recovery required',
         productId,
         imageId,
-        keys: failedKeys,
+        keys,
       });
+      return;
     }
   }
 
