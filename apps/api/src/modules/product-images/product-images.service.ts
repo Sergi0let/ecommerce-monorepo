@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  NotImplementedException,
+} from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductImagesDto } from './dto/create-product-images.dto';
@@ -10,33 +15,17 @@ export class ProductImagesService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: CreateProductImagesDto) {
+  async create(
+    productId: string,
+    data: CreateProductImagesDto,
+  ): Promise<never> {
     const variantId = data.variantId ?? null;
-    this.logger.log(
-      `Creating image for product ${data.productId}${variantId ? ` and variant ${variantId}` : ''}`,
+    await this.assertOwnerExists(productId, variantId);
+
+    // TODO: Process the uploaded file with Sharp, upload to R2, then persist metadata.
+    throw new NotImplementedException(
+      'Product image upload is not available until Sharp/R2 integration is implemented',
     );
-
-    await this.assertOwnerExists(data.productId, variantId);
-
-    return this.prisma.client.$transaction(async (transaction) => {
-      if (data.isPrimary) {
-        await transaction.productImage.updateMany({
-          where: { productId: data.productId, variantId, isPrimary: true },
-          data: { isPrimary: false },
-        });
-      }
-
-      return transaction.productImage.create({
-        data: {
-          url: data.url,
-          alt: data.alt,
-          sortOrder: data.sortOrder,
-          isPrimary: data.isPrimary,
-          productId: data.productId,
-          variantId,
-        },
-      });
-    });
   }
 
   async updateById(id: string, data: UpdateProductImagesDto) {
@@ -45,12 +34,8 @@ export class ProductImagesService {
     );
 
     const image = await this.getById(id);
-    const productId = data.productId ?? image.productId;
-    const variantId =
-      data.variantId === undefined ? image.variantId : data.variantId;
+    const { productId, variantId } = image;
     const isPrimary = data.isPrimary ?? image.isPrimary;
-
-    await this.assertOwnerExists(productId, variantId);
 
     return this.prisma.client.$transaction(async (transaction) => {
       if (isPrimary) {
@@ -68,12 +53,9 @@ export class ProductImagesService {
       return transaction.productImage.update({
         where: { id },
         data: {
-          url: data.url,
           alt: data.alt,
           sortOrder: data.sortOrder,
           isPrimary: data.isPrimary,
-          productId: data.productId,
-          variantId: data.variantId,
         },
       });
     });

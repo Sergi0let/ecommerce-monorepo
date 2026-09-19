@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
 } from '@nestjs/common';
@@ -18,33 +19,40 @@ import { UpdateProductImagesDto } from './dto/update-product-images.dto';
 import { ProductImagesService } from './product-images.service';
 
 @ApiTags('Product Images')
-@Controller('product-images')
+@Controller()
 export class ProductImagesController {
   constructor(private readonly productImagesService: ProductImagesService) {}
 
-  @Post()
+  @Post('products/:productId/images')
   @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
-  @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Create a new image for a product or product variant',
+    summary: 'Product image upload placeholder',
+    description:
+      'Validates JSON metadata and ownership, then returns 501. Multipart file upload is not implemented yet.',
   })
-  @ApiResponse({ status: 201, type: ProductImagesDto })
+  @ApiParam({ name: 'productId', type: String, format: 'uuid', required: true })
+  @ApiResponse({ status: 400, description: 'Invalid product ID or metadata' })
   @ApiResponse({ status: 404, description: 'Product or variant not found' })
-  create(@Body() data: CreateProductImagesDto) {
-    return this.productImagesService.create(data);
+  @ApiResponse({ status: 501, description: 'Image upload is not implemented' })
+  create(
+    @Param('productId', new ParseUUIDPipe()) productId: string,
+    @Body() data: CreateProductImagesDto,
+  ) {
+    return this.productImagesService.create(productId, data);
   }
 
-  @Put('id/:id')
+  @Put('product-images/id/:id')
   @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Update product image by ID' })
+  @ApiOperation({ summary: 'Update product image metadata by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductImagesDto })
+  @ApiResponse({ status: 400, description: 'Invalid image metadata' })
   @ApiResponse({ status: 404, description: 'Product image not found' })
   updateById(@Param('id') id: string, @Body() data: UpdateProductImagesDto) {
     return this.productImagesService.updateById(id, data);
   }
 
-  @Delete(':id')
+  @Delete('product-images/:id')
   @RequireRoles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete product image' })
@@ -53,14 +61,14 @@ export class ProductImagesController {
     return this.productImagesService.delete(id);
   }
 
-  @Get()
+  @Get('product-images')
   @ApiOperation({ summary: 'Get all product images' })
   @ApiResponse({ status: 200, type: [ProductImagesDto] })
   getAll() {
     return this.productImagesService.getAll();
   }
 
-  @Get('id/:id')
+  @Get('product-images/id/:id')
   @ApiOperation({ summary: 'Get product image by ID' })
   @ApiParam({ name: 'id', type: String, required: true })
   @ApiResponse({ status: 200, type: ProductImagesDto })

@@ -44,7 +44,10 @@
 - Важливість: висока
 - Реалізуемість: висока
 - Чому важливо: каталоги продуктів без зображень сильно слабші.
-- Що треба зробити: upload, storage, CRUD, прив’язка до product/variant.
+- Поточний стан: Prisma-модель, базові contracts і CRUD уже існують.
+- Що треба зробити: multipart upload, Sharp processing, Cloudflare R2 storage,
+  derivatives `thumbnail` / `medium` / `large`, cleanup та storefront integration.
+- Детальний план: [`product-images.md`](./product-images.md).
 
 3. Reviews
 - Важливість: висока
@@ -282,4 +285,7 @@
 7. Search & filters
 8. Promotions / analytics
 
-Якщо хочеш, я можу наступним кроком одразу підготувати для тебе не просто текстовий план, а готовий tech plan для Auth module з конкретними файлами, DTO, Prisma моделями і структуру Nest модулів.
+Для Product Images не розширювати поточний URL-only CRUD напряму. Виконувати
+етапи з [`product-images.md`](./product-images.md) у такому порядку: модель і
+contracts → storage adapter → Sharp pipeline → upload API → storefront →
+operational cleanup.

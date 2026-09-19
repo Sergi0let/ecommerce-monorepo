@@ -91,9 +91,7 @@ SHA-256(raw token)
 → відкликати всі RefreshSession цього user
 ```
 
-Оновлення пароля, використання token і відкликання сесій виконуються в одній
-Prisma transaction.
-
+Оновлення пароля, використання token і відкликання сесій виконуються в одній Prisma transaction.
 ### Обов'язкові e2e-тести
 
 У `apps/api/test/auth.e2e-spec.ts` додати сценарії:
