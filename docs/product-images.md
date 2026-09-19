@@ -37,8 +37,10 @@ R2 adapter реалізовано: `StorageModule` підключено до `Pr
 unit-тести. Smoke test у `market-cosmo-dev` пройшов: upload, перевірка bytes і
 headers, читання через `https://dev-images.svash.shop`, повторний delete та
 підтвердження відсутності об'єктів через S3 API. Тимчасові test objects очищено.
-Наступний блок коду — Sharp; multipart transport, cleanup і storefront також
-ще потрібно реалізувати. Наявну застосовану міграцію не редагувати; додаткові
+Sharp processor реалізовано й підключено через `ImagesModule`: приймає Buffer,
+перевіряє файл і повертає три WebP buffers із фактичними dimensions.
+Наступний блок — multipart endpoint, R2/DB orchestration і cleanup; storefront
+також ще потрібно реалізувати. Наявну застосовану міграцію не редагувати; додаткові
 зміни БД оформлювати новими міграціями.
 
 ## 2. Доменні правила
@@ -126,6 +128,29 @@ products/{productId}/{imageId}/large.webp
 Профілі й WebP quality `82` винести в `image-profiles.ts`. Processor повертає
 три buffers і фактичні dimensions результатів. Максимальні розміри означають
 вписування у квадрат `320×320`, `960×960` або `1600×1600` без crop.
+
+Виклик: `await imageProcessor.process(file.buffer)`. Результат має ключі
+`thumbnail`, `medium`, `large`; кожен містить `{ buffer, width, height }`.
+Для DB dimensions надалі використовувати `result.large.width/height`.
+Processor не створює ключів, URL чи записів у БД і не викликає R2.
+
+В одному API process допускаються одночасно два файли за замовчуванням;
+derivatives кожного файлу генеруються послідовно. При зайнятих slots новий
+виклик одразу отримує `503`, без черги buffers у пам'яті. Slot звільняється
+і після успіху, і після помилки. Ліміт окремий для кожної репліки API;
+його потрібно підбирати під RAM контейнера. Він не обмежує кількість buffers,
+які майбутній multipart transport ще тільки приймає: transport limits додаються
+на етапі 3. Кожен Sharp render має timeout 15 секунд обробки;
+це не загальний HTTP deadline і не включає очікування libuv worker.
+
+Помилки processor: `413` для перевищення byte limit, `400` для невалідного
+формату, анімації, пошкодженого файлу або pixel limit, відхиленого Sharp;
+`413` також можливий при перевищенні dimensions після metadata inspection.
+Фактичний формат перевіряється незалежно від client MIME. APNG виявляється за
+chunk `acTL`: поле `pages` у Sharp metadata не охоплює animated PNG.
+Джерела: [Sharp metadata](https://sharp.pixelplumbing.com/api-input/),
+[PNG animation control](https://www.w3.org/TR/png-3/#acTL-chunk),
+[Sharp output і timeout](https://sharp.pixelplumbing.com/api-output/).
 
 ## 5. Модель даних
 
@@ -261,6 +286,8 @@ apps/api/src/
     images.module.ts
     image-processor.service.ts
     image-profiles.ts
+    images.config.ts
+    png-animation.ts
   modules/product-images/
     dto/
     product-images.controller.ts
@@ -306,6 +333,7 @@ R2_PUBLIC_BASE_URL=https://images.svash.shop
 
 IMAGE_MAX_FILE_SIZE_BYTES=10485760
 IMAGE_MAX_INPUT_PIXELS=40000000
+IMAGE_PROCESSING_CONCURRENCY=2
 ```
 
 Це приклад production-конфігурації: у development замінити bucket і public
@@ -317,6 +345,12 @@ credentials і налаштування path-style addressing у своєму ad
 Env variables мають проходити startup validation. Secrets не комітяться і не
 передаються на frontend. Для R2 token потрібно надати доступ лише до потрібного
 bucket з мінімально необхідними object read/write permissions.
+
+Три `IMAGE_*` параметри необов'язкові: значення вище є defaults. Якщо задані,
+вони мають бути додатними цілими числами; порожнє значення є помилкою.
+Zod-конфігурація й allowlist image metadata знаходяться у
+`packages/contracts/src/common/images.schema.ts`. `ImagesModule` перевіряє
+конфігурацію при запуску API через `ConfigService`.
 
 Startup validation реалізована через `R2StorageConfigSchema` у
 `packages/contracts/src/common/storage.schema.ts`. Public base URL повинен бути
@@ -477,6 +511,11 @@ feat(api): add R2 storage adapter and config validation
 ```
 
 ### Етап 2 — Sharp image processing
+
+Етап завершено: додано 28 тестів конфігурації та processor, перевірки працюють
+із реальним Sharp без R2 і БД; fixtures генеруються в пам'яті.
+`pnpm --filter api test:unit` — 61 тест разом із storage suite;
+наявні 152 e2e-тести також проходять. `POST` усе ще повертає `501` до етапу 3.
 
 - додати `sharp`;
 - реалізувати validation і metadata inspection;

@@ -23,3 +23,6 @@ process.env.R2_BUCKET = 'market-cosmo-test';
 process.env.R2_ACCESS_KEY_ID = 'test-access-key';
 process.env.R2_SECRET_ACCESS_KEY = 'test-secret-key';
 process.env.R2_PUBLIC_BASE_URL = 'https://images.example.com';
+process.env.IMAGE_MAX_FILE_SIZE_BYTES = '10485760';
+process.env.IMAGE_MAX_INPUT_PIXELS = '40000000';
+process.env.IMAGE_PROCESSING_CONCURRENCY = '2';
