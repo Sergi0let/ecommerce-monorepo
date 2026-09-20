@@ -103,20 +103,9 @@ export class UsersService {
     // Ensure user exists
     await this.findById(id);
 
-    // If email is being updated, check uniqueness
-    if (data.email) {
-      const existingUser = await this.prisma.client.user.findUnique({
-        where: { email: data.email },
-      });
-      if (existingUser && existingUser.id !== id) {
-        throw new ConflictException('Email already in use');
-      }
-    }
-
     const user = await this.prisma.client.user.update({
       where: { id },
       data: {
-        email: data.email,
         firstName: data.firstName,
         lastName: data.lastName,
         avatarUrl: data.avatarUrl,
@@ -169,11 +158,6 @@ export class UsersService {
           revokedAt: new Date(),
         },
       });
-    });
-
-    await this.prisma.client.user.update({
-      where: { id },
-      data: { passwordHash: hashedPassword },
     });
   }
 

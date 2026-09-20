@@ -5,29 +5,7 @@
 залежності між модулями; опис реалізованих можливостей залишається в коді
 та тематичній документації.
 
-## 1. Закрити прогалини Auth / Users
-
-Перед Reviews завершити короткий блок коректності профілю та password flows:
-
-- Прибрати зміну `email` зі звичайного `PATCH /users/me` і явно відхиляти таке
-  поле. Окремий flow зміни адреси потребуватиме повторної автентифікації,
-  підтвердження нової адреси та інвалідації старих токенів. Зараз зміна email
-  залишає старий `isEmailVerified` і токени, прив'язані лише до user.
-- Прибрати повторний запис `passwordHash` поза транзакцією в
-  `UsersService.changePassword()`: зміна пароля та відкликання refresh sessions
-  мають залишатися однією операцією.
-- Додати e2e для самого `POST /auth/reset-password`: успіх, неправильний,
-  прострочений і повторно використаний token, поточний пароль як новий,
-  конкурентне використання token та відкликання refresh sessions.
-- Додати e2e для `PATCH /users/me` і `POST /users/change-password`, зокрема
-  заборони зміни email через profile update та відкликання refresh sessions.
-
-Точки входу: [UsersService](../apps/api/src/modules/users/users.service.ts),
-[UpdateUserSchema](../packages/contracts/src/users/inputs/update-user.schema.ts),
-[AuthService](../apps/api/src/modules/auth/auth.service.ts),
-[auth.e2e-spec.ts](../apps/api/test/auth.e2e-spec.ts).
-
-## 2. Reviews — наступний новий модуль
+## 1. Reviews — наступний новий модуль
 
 У [Prisma schema](../packages/database/prisma/schema.prisma) є початкова модель
 `Review`, але їй бракує автора та модерації; API-модуля й contracts для відгуків
@@ -56,7 +34,7 @@
 Тести: ownership, ролі, валідація, дублікати, видимість статусів,
 редагування після approval, видалення й конкурентний перерахунок рейтингу.
 
-## 3. Cart → резервування → Orders / checkout → Payments
+## 2. Cart → резервування → Orders / checkout → Payments
 
 1. **Cart:** моделі кошика та позицій, кількість, додавання/видалення SKU.
    Почати з авторизованого користувача; guest cart і merge — окрема задача.
@@ -76,7 +54,7 @@
 мінімального наскрізного сценарію замовлення. Ціна й залишок належать варіанту:
 [pricing](./product-pricing.md), [warehouse domain](./warehouse-domain.md).
 
-## 4. Пошук і розширення каталогу
+## 3. Пошук і розширення каталогу
 
 - Текстовий пошук, фільтри бренду/категорії, діапазону цін, атрибутів і наявності.
 - Узгоджені фільтри, стабільне сортування та pagination у catalog endpoints.
@@ -86,7 +64,7 @@
 
 Ownership маршрутів — за [product-listing-guidelines.md](./product-listing-guidelines.md).
 
-## 5. Подальші продуктові задачі
+## 4. Подальші продуктові задачі
 
 - Promotions / coupons: строки дії, eligibility, ліміти використання,
   серверний розрахунок знижок у checkout.
@@ -94,12 +72,14 @@ Ownership маршрутів — за [product-listing-guidelines.md](./product-
 - Notifications: листи про статуси замовлень і оплату; retry/outbox при потребі
   гарантованої доставки бізнес-подій.
 - Analytics: продажі, товари та залишки на основі Orders і movement history.
+- Зміна email: окремий flow із повторною автентифікацією, підтвердженням
+  нової адреси та інвалідацією попередніх токенів.
 - Upload аватара: один профіль зображення, server-owned key, заміна й cleanup;
   окрема задача профілю, яка не блокує Reviews.
 - Admin listing користувачів і зображень: pagination та filters замість
   повернення всієї таблиці.
 
-## 6. Перед публічним production-запуском
+## 5. Перед публічним production-запуском
 
 Ці задачі виконуються до відкриття API незалежно від прогресу нових модулів:
 

@@ -1,8 +1,14 @@
 import { z } from 'zod';
 import { UserInputBaseSchema } from './create-user.schema.js';
 
-// Update user profile (email, name, avatar)
-export const UpdateUserSchema = UserInputBaseSchema.partial();
+// Email changes require a separate verification flow.
+export const UpdateUserSchema = UserInputBaseSchema.pick({
+  firstName: true,
+  lastName: true,
+  avatarUrl: true,
+})
+  .partial()
+  .strict();
 
 // Change password schema
 export const ChangePasswordSchema = z.object({
