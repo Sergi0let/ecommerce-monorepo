@@ -73,10 +73,13 @@ export class UsersController {
   @Patch('me')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update user profile' })
+  @ApiOperation({ summary: 'Update user name and avatar' })
   @ApiResponse({ status: 200, description: 'Updated user' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid profile fields; email changes are not supported',
+  })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 409, description: 'Email already in use' })
   async updateProfile(@Req() req: Request, @Body() dto: UpdateUserDto) {
     return this.usersService.updateProfile(req.user!.id, dto);
   }

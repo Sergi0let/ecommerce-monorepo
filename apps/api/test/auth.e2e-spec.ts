@@ -487,6 +487,287 @@ describe('Auth integration', () => {
     });
   });
 
+  describe('PATCH /api/users/me', () => {
+    it('updates only the current user and preserves omitted profile fields', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      const other = await prisma.user.create({
+        data: { email: 'other@example.com', firstName: 'Other' },
+      });
+
+      const response = await agent
+        .patch('/api/users/me')
+        .send({
+          firstName: 'Updated',
+          avatarUrl: 'https://example.com/avatar.webp',
+        })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        email: userInput.email,
+        firstName: 'Updated',
+        lastName: userInput.lastName,
+        avatarUrl: 'https://example.com/avatar.webp',
+      });
+      expect(response.body).not.toHaveProperty('passwordHash');
+      await expect(
+        prisma.user.findUniqueOrThrow({ where: { id: other.id } }),
+      ).resolves.toEqual(other);
+
+      await agent.patch('/api/users/me').send({ avatarUrl: null }).expect(200);
+      await expect(
+        prisma.user.findUniqueOrThrow({
+          where: { email: userInput.email },
+          select: { firstName: true, lastName: true, avatarUrl: true },
+        }),
+      ).resolves.toEqual({
+        firstName: 'Updated',
+        lastName: userInput.lastName,
+        avatarUrl: null,
+      });
+    });
+
+    it.each([true, false])(
+      'rejects email changes without modifying the profile (verified: %s)',
+      async (isEmailVerified) => {
+        const agent = request.agent(app.getHttpServer());
+        await agent.post('/api/auth/register').send(userInput).expect(201);
+        const before = await prisma.user.update({
+          where: { email: userInput.email },
+          data: { isEmailVerified },
+        });
+
+        const response = await agent
+          .patch('/api/users/me')
+          .send({ email: 'changed@example.com', firstName: 'Must not change' })
+          .expect(400);
+
+        expect(response.body.errors).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              code: 'unrecognized_keys',
+              keys: expect.arrayContaining(['email']),
+            }),
+          ]),
+        );
+        await expect(
+          prisma.user.findUniqueOrThrow({ where: { id: before.id } }),
+        ).resolves.toEqual(before);
+      },
+    );
+
+    it('requires authentication', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/users/me')
+        .send({ firstName: 'Updated' })
+        .expect(401);
+    });
+  });
+
+  describe('POST /api/users/change-password', () => {
+    const newPassword = 'ChangedPassword2';
+
+    it('changes the password and revokes all of the user refresh sessions', async () => {
+      const agent = request.agent(app.getHttpServer());
+      const secondSession = request.agent(app.getHttpServer());
+      const otherUser = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      await secondSession.post('/api/auth/login').send(userInput).expect(200);
+      await otherUser
+        .post('/api/auth/register')
+        .send({ ...userInput, email: 'other@example.com' })
+        .expect(201);
+
+      await agent
+        .post('/api/users/change-password')
+        .send({ currentPassword: userInput.password, newPassword })
+        .expect(204);
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+        include: { refreshSessions: true },
+      });
+      await expect(
+        bcrypt.compare(newPassword, user.passwordHash!),
+      ).resolves.toBe(true);
+      expect(user.refreshSessions).toHaveLength(2);
+      expect(
+        user.refreshSessions.every(({ revokedAt }) => revokedAt !== null),
+      ).toBe(true);
+      await agent.post('/api/auth/refresh').expect(401);
+      await secondSession.post('/api/auth/refresh').expect(401);
+      await otherUser.post('/api/auth/refresh').expect(200);
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send(userInput)
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: userInput.email, password: newPassword })
+        .expect(200);
+    });
+
+    it('rejects an incorrect current password without changing password or sessions', async () => {
+      const agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      const before = await prisma.user.findUniqueOrThrow({
+        where: { email: userInput.email },
+        include: { refreshSessions: true },
+      });
+
+      await agent
+        .post('/api/users/change-password')
+        .send({ currentPassword: wrongPassword, newPassword })
+        .expect(400);
+
+      await expect(
+        prisma.user.findUniqueOrThrow({
+          where: { id: before.id },
+          include: { refreshSessions: true },
+        }),
+      ).resolves.toEqual(before);
+      await agent.post('/api/auth/refresh').expect(200);
+    });
+
+    it('requires authentication', async () => {
+      await request(app.getHttpServer())
+        .post('/api/users/change-password')
+        .send({ currentPassword: userInput.password, newPassword })
+        .expect(401);
+    });
+  });
+
+  describe('POST /api/auth/reset-password', () => {
+    const newPassword = 'ResetPassword2';
+    let agent: ReturnType<typeof request.agent>;
+    let token: string;
+    let tokenHash: string;
+
+    beforeEach(async () => {
+      agent = request.agent(app.getHttpServer());
+      await agent.post('/api/auth/register').send(userInput).expect(201);
+      await agent
+        .post('/api/auth/request-password-reset')
+        .send({ email: userInput.email })
+        .expect(200);
+      const email = sentEmails.find(({ type }) => type === 'password-reset');
+      expect(email).toBeDefined();
+      token = new URL(email!.actionUrl).searchParams.get('token')!;
+      expect(token).toBeTruthy();
+      tokenHash = createHash('sha256').update(token).digest('hex');
+    });
+
+    it('consumes the emailed token, changes the password and revokes only its user sessions', async () => {
+      const secondSession = request.agent(app.getHttpServer());
+      const otherUser = request.agent(app.getHttpServer());
+      await secondSession.post('/api/auth/login').send(userInput).expect(200);
+      await otherUser
+        .post('/api/auth/register')
+        .send({ ...userInput, email: 'other@example.com' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/auth/reset-password')
+        .send({ token, newPassword })
+        .expect(204);
+
+      const storedToken = await prisma.passwordResetToken.findUniqueOrThrow({
+        where: { tokenHash },
+        include: { user: { include: { refreshSessions: true } } },
+      });
+      expect(storedToken.usedAt).toBeInstanceOf(Date);
+      await expect(
+        bcrypt.compare(newPassword, storedToken.user.passwordHash!),
+      ).resolves.toBe(true);
+      expect(storedToken.user.refreshSessions).toHaveLength(2);
+      expect(
+        storedToken.user.refreshSessions.every(
+          ({ revokedAt }) => revokedAt !== null,
+        ),
+      ).toBe(true);
+      await agent.post('/api/auth/refresh').expect(401);
+      await secondSession.post('/api/auth/refresh').expect(401);
+      await otherUser.post('/api/auth/refresh').expect(200);
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send(userInput)
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: userInput.email, password: newPassword })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post('/api/auth/reset-password')
+        .send({ token, newPassword: 'AnotherPassword3' })
+        .expect(400);
+      await expect(
+        prisma.user.findUniqueOrThrow({
+          where: { id: storedToken.userId },
+          select: { passwordHash: true },
+        }),
+      ).resolves.toEqual({ passwordHash: storedToken.user.passwordHash });
+    });
+
+    it.each(['invalid', 'expired', 'same-password'] as const)(
+      'rejects %s without consuming the token or changing password and sessions',
+      async (scenario) => {
+        if (scenario === 'expired') {
+          await prisma.passwordResetToken.update({
+            where: { tokenHash },
+            data: { expiresAt: new Date(Date.now() - 60_000) },
+          });
+        }
+        const before = await prisma.passwordResetToken.findUniqueOrThrow({
+          where: { tokenHash },
+          include: { user: { include: { refreshSessions: true } } },
+        });
+
+        await request(app.getHttpServer())
+          .post('/api/auth/reset-password')
+          .send({
+            token: scenario === 'invalid' ? 'invalid-token' : token,
+            newPassword:
+              scenario === 'same-password' ? userInput.password : newPassword,
+          })
+          .expect(400);
+
+        await expect(
+          prisma.passwordResetToken.findUniqueOrThrow({
+            where: { tokenHash },
+            include: { user: { include: { refreshSessions: true } } },
+          }),
+        ).resolves.toEqual(before);
+        await agent.post('/api/auth/refresh').expect(200);
+      },
+    );
+
+    it('allows only one concurrent reset to consume the token and set its password', async () => {
+      const passwords = [newPassword, 'ConcurrentPassword3'];
+      const responses = await Promise.all(
+        passwords.map((password) =>
+          request(app.getHttpServer())
+            .post('/api/auth/reset-password')
+            .send({ token, newPassword: password }),
+        ),
+      );
+      expect(responses.map(({ status }) => status).sort()).toEqual([204, 400]);
+      const winner = responses.findIndex(({ status }) => status === 204);
+      const storedToken = await prisma.passwordResetToken.findUniqueOrThrow({
+        where: { tokenHash },
+        include: { user: true },
+      });
+      expect(storedToken.usedAt).toBeInstanceOf(Date);
+      await expect(
+        bcrypt.compare(passwords[winner]!, storedToken.user.passwordHash!),
+      ).resolves.toBe(true);
+      await expect(
+        bcrypt.compare(passwords[1 - winner]!, storedToken.user.passwordHash!),
+      ).resolves.toBe(false);
+      await agent.post('/api/auth/refresh').expect(401);
+    });
+  });
+
   describe('POST /api/auth/request-password-reset', () => {
     const errorMessage = 'If the account exists, a reset email has been sent';
 
