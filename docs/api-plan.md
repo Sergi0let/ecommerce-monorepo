@@ -1,291 +1,119 @@
-# План розвитку API для market-cosmo
+# План подальшого розвитку API
 
-## 1. Поточний стан
+Документ містить лише незавершені задачі. Найближчий крок і контекст для
+продовження роботи — у [_what-next.md](./_what-next.md). Порядок нижче враховує
+залежності між модулями; опис реалізованих можливостей залишається в коді
+та тематичній документації.
 
-На даний момент в репозиторії вже є базова структура для ключових доменів API. Це означає, що ми не стартуємо з нуля, а маємо готову основу для продовження роботи.
+## 1. Закрити прогалини Auth / Users
 
-### Уже є / має базову реалізацію
-- Brand
-- Category
-- Product
-- Product variant
-- Product price
-- Inventory
-- Ingredient
-- Warehouse
+Перед Reviews завершити короткий блок коректності профілю та password flows:
 
-### Ще не охоплено або потребує розширення
-- Auth / users / roles
-- Reviews
-- Product images / media
-- Upsell / cross-sell recommendations
-- Shipping class / delivery logic
-- Orders / cart / checkout
-- Payments / discounts / promotions
-- Search / filters / recommendations
+- Прибрати зміну `email` зі звичайного `PATCH /users/me` і явно відхиляти таке
+  поле. Окремий flow зміни адреси потребуватиме повторної автентифікації,
+  підтвердження нової адреси та інвалідації старих токенів. Зараз зміна email
+  залишає старий `isEmailVerified` і токени, прив'язані лише до user.
+- Прибрати повторний запис `passwordHash` поза транзакцією в
+  `UsersService.changePassword()`: зміна пароля та відкликання refresh sessions
+  мають залишатися однією операцією.
+- Додати e2e для самого `POST /auth/reset-password`: успіх, неправильний,
+  прострочений і повторно використаний token, поточний пароль як новий,
+  конкурентне використання token та відкликання refresh sessions.
+- Додати e2e для `PATCH /users/me` і `POST /users/change-password`, зокрема
+  заборони зміни email через profile update та відкликання refresh sessions.
 
----
+Точки входу: [UsersService](../apps/api/src/modules/users/users.service.ts),
+[UpdateUserSchema](../packages/contracts/src/users/inputs/update-user.schema.ts),
+[AuthService](../apps/api/src/modules/auth/auth.service.ts),
+[auth.e2e-spec.ts](../apps/api/test/auth.e2e-spec.ts).
 
-## 2. Пріоритетний план розвитку
+## 2. Reviews — наступний новий модуль
 
-Нижче список не просто по порядку, а по двом критеріям:
-- важливість для продукту;
-- реальність імплементації в поточному проекті.
+У [Prisma schema](../packages/database/prisma/schema.prisma) є початкова модель
+`Review`, але їй бракує автора та модерації; API-модуля й contracts для відгуків
+ще немає.
 
-### P0 — критично важливо і висока реалізуемість
+Початкові правила для реалізації:
 
-1. Auth module
-- Важливість: дуже висока
-- Реалізуемість: висока
-- Чому перше: без auth не можна нормально робити користувацькі сценарії, замовлення, збереження вподобань, профілі тощо.
-- Що треба зробити: users, login/register, JWT, refresh token, guards, roles, social auth.
+- Відгук належить `Product` і автору `User`; `userId` береться з JWT.
+- Рейтинг — ціле число від 1 до 5; коментар має обмеження довжини.
+- Початкова політика — один відгук користувача на продукт із можливістю
+  редагування; обмеження забезпечується також у БД.
+- Автор створює, редагує та видаляє свій відгук; `ADMIN` / `MANAGER`
+  модерують. Публічний список показує лише опубліковані відгуки.
+- Статуси модерації: `PENDING`, `APPROVED`, `REJECTED`; редагування
+  опублікованого відгуку повертає його на модерацію.
+- `ratingAvg` / `ratingCount` продукту враховують лише `APPROVED` і
+  залишаються узгодженими при паралельних змінах.
+- `verifiedPurchase` не приймається від клієнта; перевірку покупки додати
+  після Orders. До цього API не позначає відгуки як підтверджені покупкою.
 
-2. Product images / media
-- Важливість: висока
-- Реалізуемість: висока
-- Чому важливо: каталоги продуктів без зображень сильно слабші.
-- Поточний стан: Prisma-модель, базові contracts і CRUD уже існують.
-- Що треба зробити: multipart upload, Sharp processing, Cloudflare R2 storage,
-  derivatives `thumbnail` / `medium` / `large`, cleanup та storefront integration.
-- Детальний план: [`product-images.md`](./product-images.md).
+Порядок роботи: модель і міграція → contracts → `ReviewsModule` →
+публічний paginated listing, власні mutations і moderation → тести.
+Перед додаванням обов'язкового автора перевірити наявні review-записи
+та визначити їх перенесення без вигаданих користувачів.
 
-3. Reviews
-- Важливість: висока
-- Реалізуемість: висока
-- Чому важливо: довіра до продуктів і соціальний доказ.
-- Що треба зробити: CRUD review, рейтинг, moderation, прив’язка до user/product.
+Тести: ownership, ролі, валідація, дублікати, видимість статусів,
+редагування після approval, видалення й конкурентний перерахунок рейтингу.
 
-### P1 — дуже важливо, але трохи складніше
+## 3. Cart → резервування → Orders / checkout → Payments
 
-4. Inventory / warehouse flow
-- Важливість: висока
-- Реалізуемість: середня
-- Чому важливо: це вже не просто каталог, а операційна частина магазину.
-- Що треба зробити: movement logs, stock updates, reservations, low-stock alerts.
+1. **Cart:** моделі кошика та позицій, кількість, додавання/видалення SKU.
+   Почати з авторизованого користувача; guest cart і merge — окрема задача.
+   Ціна береться на сервері з `Price` конкретного варіанта.
+2. **Inventory operations:** атомарні reserve/release/consume, термін життя
+   резерву та журнал руху. Перевірка доступності й резервування мають бути
+   однією конкурентно безпечною операцією; кошик сам по собі не резервує товар.
+   Прямі admin updates залишків не повинні обходити правила резервування.
+3. **Orders / checkout:** позиції зі snapshots SKU, назви, ціни й валюти;
+   адреса, спосіб і вартість доставки, totals, статуси, ownership та idempotency.
+   Створення замовлення узгодити з резервуванням, скасування — зі звільненням.
+4. **Payments:** вибрати провайдера перед інтеграцією; перевіряти підпис
+   webhook, повторну доставку подій і дозволені переходи статусів.
+   Успіх redirect на frontend не є підтвердженням оплати.
 
-5. Upsell / cross-sell recommendations
-- Важливість: висока
-- Реалізуемість: середня
-- Чому важливо: це прямий інструмент підвищення середнього чека.
-- Що треба зробити: зв’язки між продуктами, рекомендації “покращити”, “додати до купівлі”, правила правил для рекомендацій.
+Розширені shipping classes, тарифи перевізників і low-stock alerts — після
+мінімального наскрізного сценарію замовлення. Ціна й залишок належать варіанту:
+[pricing](./product-pricing.md), [warehouse domain](./warehouse-domain.md).
 
-6. Shipping class / delivery logic
-- Важливість: висока
-- Реалізуемість: середня
-- Чому важливо: без цього складно нормально працювати з доставкою, тарифами та логістикою.
-- Що треба зробити: shipping classes, правила доставки, тарифи, залежність від ваги/розміру/країни/типу товару.
+## 4. Пошук і розширення каталогу
 
-7. Orders / cart / checkout
-- Важливість: висока
-- Реалізуемість: середня
-- Чому важливо: це core commerce сценарій.
-- Що треба зробити: cart, order creation, statuses, payments integration.
+- Текстовий пошук, фільтри бренду/категорії, діапазону цін, атрибутів і наявності.
+- Узгоджені фільтри, стабільне сортування та pagination у catalog endpoints.
+- Почати з PostgreSQL та індексів під фактичні запити; окремий пошуковий сервіс
+  розглядати після вимірювання якості й швидкодії.
+- Не повертати N+1 запити для цін, залишків і рейтингу.
 
-8. Search / filters / catalog UX
-- Важливість: висока
-- Реалізуемість: середня
-- Чому важливо: для магазину критично, щоб користувач швидко знаходив продукти.
-- Що треба зробити: search, faceted filters, sorting, pagination, full-text або Atlas Search в майбутньому.
+Ownership маршрутів — за [product-listing-guidelines.md](./product-listing-guidelines.md).
 
-### P2 — важливо для росту продукту
+## 5. Подальші продуктові задачі
 
-9. Discounts / promotions / coupons
-- Важливість: середня
-- Реалізуемість: середня
-- Що треба зробити: promo rules, coupon codes, eligibility.
+- Promotions / coupons: строки дії, eligibility, ліміти використання,
+  серверний розрахунок знижок у checkout.
+- Upsell / cross-sell: керовані зв'язки між продуктами, потім правила рекомендацій.
+- Notifications: листи про статуси замовлень і оплату; retry/outbox при потребі
+  гарантованої доставки бізнес-подій.
+- Analytics: продажі, товари та залишки на основі Orders і movement history.
+- Upload аватара: один профіль зображення, server-owned key, заміна й cleanup;
+  окрема задача профілю, яка не блокує Reviews.
+- Admin listing користувачів і зображень: pagination та filters замість
+  повернення всієї таблиці.
 
-10. Notifications / email / SMS
-- Важливість: середня
-- Реалізуемість: середня
-- Що треба зробити: welcome email, order updates, password reset, otp.
+## 6. Перед публічним production-запуском
 
-11. Analytics / reporting
-- Важливість: середня
-- Реалізуемість: середня
-- Що треба зробити: sales dashboard, product performance, stock reports.
+Ці задачі виконуються до відкриття API незалежно від прогресу нових модулів:
 
----
+- Прибрати fallback JWT secrets; додати startup validation для Auth і
+  параметрів web/API deployment.
+- Додати загальний rate limiting auth/upload endpoints; наявний cooldown
+  відправлення листів не обмежує login/register чи всі вхідні запити.
+- Перевірити cookie/CSRF-поведінку для фактичних доменів, CORS і OAuth callback.
+- Додати scheduled cleanup прострочених/використаних auth tokens і сесій
+  із визначеним retention та обмеженим розміром batch.
+- Налаштувати production SMTP і перевірити доставку листів.
+- Виконати [production rollout зображень](./product-images-production.md),
+  включно з recovery за розкладом і monitoring.
 
-## 3. Порядок модулів з урахуванням залежностей
-
-### Фаза A — foundation
-1. Auth
-2. Users / profiles / roles
-3. Product images
-4. Reviews
-
-### Фаза B — commerce core
-5. Cart / orders
-6. Payments
-7. Inventory / warehouse operations
-
-### Фаза C — growth
-8. Search / filters
-9. Promotions / coupons
-10. Analytics / notifications
-
----
-
-## 4. Що вже зроблено в проекті
-
-### База API
-- є модулі для основних сутностей;
-- є Prisma schema для продуктів, інгредієнтів, складів, варіантів;
-- є контрактна частина для DTO / schemas;
-- є структура NestJS modules, services, controllers.
-
-### Що вже можна вважати готовим для продовження
-- CRUD для базових каталогів;
-- модель даних для продуктів і пов’язаних сутностей;
-- підготовка до розширення на commerce сценарії.
-
-### Що ще треба довести до “готового продуктового стану”
-- нормалізація поведінки всіх CRUD;
-- уніфікація помилок і статусів;
-- додавання авторизації та захисту endpoint-ів;
-- додавання перевірок бізнес-логіки.
-
----
-
-## 5. Рекомендації по Auth module
-
-Я б рекомендував зробити auth на базі NestJS + Passport, а не вручну писати власну авторизацію.
-
-### Ролі для адмінки
-
-Ролі варто впроваджувати одразу після базового auth, але не в самій першій версії MVP. Ідея така:
-- на початку зробити просту модель: user + role;
-- дати мінімум 2 ролі: admin і customer;
-- у майбутньому розширити до manager, support, moderator.
-
-#### Найкращий підхід
-- role — це не “велика система прав”, а базовий рівень доступу;
-- для адмінки достатньо мати:
-  - admin — повний доступ до адмін-панелі;
-  - customer — звичайний користувач;
-- права для конкретних дій (наприклад, CRUD для продуктів) краще захищати через guards, а не розмазувати по всьому коду.
-
-#### На якому етапі впроваджувати
-- Етап 1: після login/register + JWT;
-- Етап 2: додати role в User model;
-- Етап 3: створити AdminGuard / RolesGuard;
-- Етап 4: захистити адмінські endpoint-и.
-
-#### Практична рекомендація
-Якщо хочеш не ускладнювати MVP, то роби так:
-1. MVP auth: register/login/me/refresh/logout;
-2. Потім roles: admin/customer;
-3. Потім admin dashboard endpoints;
-4. Лише далі — складніші permission systems.
-
-Це дає хороший баланс між швидкістю впровадження і безпекою.
-
-### Технологічний стек
-- @nestjs/passport
-- passport
-- @nestjs/jwt
-- passport-jwt
-- passport-local
-- passport-google-oauth20
-- passport-facebook
-- bcrypt
-- prisma
-
-### Архітектура
-
-#### 1. User model
-Потрібна окрема сутність User з полями:
-- id
-- email
-- passwordHash
-- firstName
-- lastName
-- avatarUrl
-- isEmailVerified
-- provider = local | google | facebook
-- providerId
-- role = user | admin
-- createdAt / updatedAt
-
-#### 2. Social accounts
-Для чистоти моделі краще мати окрему таблицю SocialAccount:
-- userId
-- provider
-- providerId
-- email
-- accessToken / refreshToken (за потреби)
-
-Це дозволить підтримувати кілька провайдерів без сплутування акаунтів.
-
-#### 3. Auth flow
-- Email/password register/login
-- Google OAuth login
-- Facebook OAuth login
-- JWT access token
-- Refresh token
-- Logout / revoke refresh token
-
-#### 4. Security
-- bcrypt для password hashing
-- JWT guards для захисту endpoint-ів
-- refresh token rotation
-- rate limiting для login/register
-- email verification для реєстрації
-
----
-
-## 6. План впровадження Auth
-
-### Етап 1 — база авторизації
-1. Додати User model в Prisma.
-2. Додати Auth module, Auth controller, Auth service.
-3. Реалізувати register/login через email + password.
-4. Додати JWT access token.
-
-### Етап 2 — Passport strategies
-5. Додати LocalStrategy для email/password.
-6. Додати JwtStrategy для доступу до захищених endpoint-ів.
-7. Додати RefreshToken strategy.
-
-### Етап 3 — соціальні провайдери
-8. Додати Google OAuth strategy.
-9. Додати Facebook OAuth strategy.
-10. Реалізувати flow: redirect → callback → create/find user → issue JWT.
-
-### Етап 4 — продуктова інтеграція
-11. Захистити API endpoints для профілю, замовлень, улюблених товарів.
-12. Додати role-based access control для admin.
-13. Додати middleware / guards для protected routes.
-
-### Етап 5 — quality / production
-14. Додати unit/e2e тести для auth.
-15. Додати Swagger docs для auth endpoints.
-16. Додати env variables для Google/Facebook secrets.
-
----
-
-## 7. Практичні рекомендації
-
-- Починати з local auth, а вже потім додавати соціальні провайдери.
-- Спочатку зробити простий, але надійний JWT flow, а не одразу складати багато feature-ів.
-- Для Google/Facebook краще спочатку реалізувати “login via provider” в мінімальній версії без складної профільної логіки.
-- Не змішувати email/password і social accounts в одну таблицю без нормалізації.
-- Для MVP достатньо: register, login, me, refresh, logout.
-
----
-
-## 8. Рекомендований порядок дій
-
-1. Auth module
-2. User profile
-3. Product images
-4. Reviews
-5. Cart / orders
-6. Inventory / warehouse improvements
-7. Search & filters
-8. Promotions / analytics
-
-Для Product Images не розширювати поточний URL-only CRUD напряму. Виконувати
-етапи з [`product-images.md`](./product-images.md) у такому порядку: модель і
-contracts → storage adapter → Sharp pipeline → upload API → storefront →
-operational cleanup.
+Storefront UI для зображень — окрема web-задача; вона не є передумовою
+розробки Reviews API. Контракт використання галереї — у
+[product-images.md](./product-images.md).

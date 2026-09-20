@@ -1,99 +1,41 @@
 # Product Images і Cloudflare R2
 
-## 1. Мета
-
-Реалізувати production-ready завантаження зображень продуктів і варіантів:
+API приймає зображення продукту або його варіанта, створює три WebP-версії
+та завантажує їх у Cloudflare R2. PostgreSQL зберігає URL, ключі об'єктів,
+метадані та зв'язки з продуктом і варіантом. Оригінальний файл не зберігається.
 
 ```text
-Admin client
-  -> NestJS multipart endpoint
-  -> validate file
-  -> Sharp: rotate, strip metadata, resize, WebP
-  -> Cloudflare R2
-  -> ProductImage metadata у PostgreSQL
-  -> CDN URL у storefront
+Admin → multipart endpoint → ImagesModule → StorageModule → ProductImage у БД
 ```
 
-Бінарні файли зберігаються у Cloudflare R2. PostgreSQL зберігає тільки
-ідентифікатори об'єктів, metadata і зв'язки з доменними сутностями.
+## Де описана реалізація
 
-### Поточний стан
+- [ImagesModule](../apps/api/src/common/images/docs/images.md) — перевірка
+  файла, Sharp pipeline, профілі розмірів, WebP та EXIF.
+- [StorageModule](../apps/api/src/common/storage/docs/storage-module.md) —
+  контракт сховища, dependency injection, R2 adapter та заміна провайдера.
+- [Створення зображення](../apps/api/src/modules/product-images/docs/create-product-images.md) —
+  `create()`, порядок запису в R2 і БД, `lockImageProduct()` та `cleanupUpload()`.
+- [Production rollout](./product-images-production.md) — конфігурація
+  середовища, запуск recovery, smoke test і відновлення після збоїв.
 
-Підготовчий етап завершено:
+## Галереї та модель даних
 
-- `ProductImage.url` замінено на `storageKeyBase`, три derivative URLs і dimensions;
-- міграція `20260919145346_r2_image_addition_fields` видаляє лише записи
-  `https://placehold.co/…`, зупиняючись, якщо є інші зображення;
-- seed більше не створює placeholder-записи `ProductImage`;
-- response contract перевіряє URL, додатні dimensions і невід'ємний `sortOrder`;
-- create input містить тільки metadata; update — `alt`, `sortOrder`, `isPrimary`;
-- `POST /api/products/:productId/images` бере `productId` із route, перевіряє
-  multipart metadata та належність variant і повертає `201 Created`;
-- upload приймає один `file`, генерує три WebP, завантажує їх у storage та
-  створює один `ProductImage`; помилки upload/DB запускають компенсацію;
-- create/update використовують спільне DB-блокування продукту для primary image;
-- image/product/variant hard delete створює durable cleanup tasks та видаляє
-  DB records однією транзакцією, потім очищає R2 із retry;
-- recovery command має dry run, grace period, перевірку references і missing files.
+- `productId` обов'язковий; `variantId = null` означає спільну галерею продукту.
+- Якщо `variantId` заданий, варіант має належати цьому продукту.
+- Кожна галерея має не більше одного `isPrimary = true`; головні зображення
+  спільної галереї та різних варіантів незалежні.
+- Порожня галерея допустима. Placeholder не зберігається як `ProductImage`.
 
-R2 adapter реалізовано: `StorageModule` підключено до `ProductImagesModule`,
-доступні `putObject`, `deleteObject`, `getPublicUrl`, startup validation та
-unit-тести. Smoke test у `market-cosmo-dev` пройшов: upload, перевірка bytes і
-headers, читання через `https://dev-images.svash.shop`, повторний delete та
-підтвердження відсутності об'єктів через S3 API. Тимчасові test objects очищено.
-Sharp processor реалізовано й підключено через `ImagesModule`: приймає Buffer,
-перевіряє файл і повертає три WebP buffers із фактичними dimensions.
-Multipart endpoint, hard delete cleanup та recovery реалізовано.
-Наступний блок — storefront. Наявну застосовану міграцію не редагувати; додаткові
-зміни БД оформлювати новими міграціями.
+[Модель ProductImage](../packages/database/prisma/schema.prisma) містить:
 
-## 2. Доменні правила
+- `id`, `productId`, nullable `variantId` — ідентифікатор і власник;
+- `storageKeyBase` — спільний префікс трьох об'єктів у R2;
+- `thumbnailUrl`, `mediumUrl`, `largeUrl` — публічні адреси;
+- `width`, `height` — фактичні розміри **large-версії** після обробки;
+- `alt`, `sortOrder`, `isPrimary`, `createdAt` — метадані зображення.
 
-- `ProductImage.productId` завжди обов'язковий.
-- `variantId = null` означає спільне зображення продукту.
-- Якщо `variantId` заданий, варіант має належати тому самому продукту.
-- Власна галерея варіанта повністю замінює спільну галерею у storefront.
-- У межах однієї галереї може бути не більше одного `isPrimary = true`.
-- Галерея продукту і галерея кожного варіанта мають незалежне primary-зображення.
-- Однакові фото варіантів зберігаються один раз на рівні продукту.
-- Оригінальний файл після обробки не використовується у storefront і за
-  замовчуванням не зберігається.
-
-Вибір галереї:
-
-```ts
-const images =
-  selectedVariant.images.length > 0 ? selectedVariant.images : product.images;
-```
-
-## 3. Storage architecture
-
-### Production
-
-- bucket `market-cosmo-prod` для оброблених публічних зображень;
-- цільовий custom domain для видачі — `images.svash.shop`; його підключення й
-  доступність перевірити окремо перед smoke test;
-- API працює з R2 через S3-compatible API;
-- credentials доступні лише NestJS API;
-- окремі buckets або окремі Cloudflare accounts для production і non-production.
-
-Custom domain відкриває публічне читання об'єктів: цей bucket не вважати
-приватним сховищем оригіналів. Запис і видалення виконуються з credentials через
-S3 API. Не передавати `ACL: 'public-read'` — object ACL у R2 не підтримуються.
-
-### Local development
-
-Перший варіант для розробки — окремий development R2 bucket із власним public
-base URL. Альтернатива для локального workflow — MinIO у Docker через той самий
-storage interface та окрему конфігурацію S3-compatible adapter.
-
-Unit-тести використовують mock/fake storage. E2E — fake storage або MinIO й
-окрему БД через `TEST_DATABASE_URL`. Production bucket не використовується для
-локальної розробки або тестів.
-
-### Object keys
-
-Ключ не повинен залежати від оригінальної назви файлу:
+Сервер генерує UUID і ключі незалежно від оригінальної назви файла:
 
 ```text
 products/{productId}/{imageId}/thumbnail.webp
@@ -101,119 +43,18 @@ products/{productId}/{imageId}/medium.webp
 products/{productId}/{imageId}/large.webp
 ```
 
-`imageId` генерується API до upload. UUID робить ключі стабільними та усуває
-колізії. Environment не потрібно додавати в key, якщо для середовищ створені
-окремі buckets.
+`storageKeyBase` дорівнює `products/{productId}/{imageId}`. Cleanup відновлює
+ключі з цього поля та звіряє їх з IDs; парсити публічні URL для видалення не потрібно.
+Повні URL зберігаються в БД, тому зміна `R2_PUBLIC_BASE_URL` сама по собі
+не оновлює адреси наявних зображень.
 
-## 4. Image derivatives
+## API
 
-Початкові профілі:
+Routes визначені в
+[ProductImagesController](../apps/api/src/modules/product-images/product-images.controller.ts).
+Зміни доступні ролям `ADMIN` і `MANAGER`.
 
-| Variant     | Максимальний розмір | Призначення                   |
-| ----------- | ------------------: | ----------------------------- |
-| `thumbnail` |              320 px | картки, мініатюри             |
-| `medium`    |              960 px | catalog і mobile product page |
-| `large`     |             1600 px | desktop product gallery       |
-
-Правила обробки:
-
-- застосувати EXIF orientation через `sharp().rotate()`;
-- видалити EXIF та інші непотрібні metadata;
-- не збільшувати маленькі зображення: `withoutEnlargement: true`;
-- зберігати aspect ratio через `fit: inside`;
-- конвертувати у WebP;
-- обмежити кількість вхідних pixels через Sharp;
-- приймати лише JPEG, PNG і WebP, перевіряючи фактичний формат та декодування;
-- не приймати SVG для цього pipeline;
-- GIF та animated PNG/WebP на MVP відхиляти, а не мовчки обрізати до першого frame;
-- обмежити кількість одночасних обробок; байтовий ліміт input не обмежує
-  споживання RAM декодованими зображеннями.
-
-Профілі й WebP quality `82` винести в `image-profiles.ts`. Processor повертає
-три buffers і фактичні dimensions результатів. Максимальні розміри означають
-вписування у квадрат `320×320`, `960×960` або `1600×1600` без crop.
-
-Виклик: `await imageProcessor.process(file.buffer)`. Результат має ключі
-`thumbnail`, `medium`, `large`; кожен містить `{ buffer, width, height }`.
-Для DB dimensions надалі використовувати `result.large.width/height`.
-Processor не створює ключів, URL чи записів у БД і не викликає R2.
-
-В одному API process допускаються одночасно два файли за замовчуванням;
-derivatives кожного файлу генеруються послідовно. При зайнятих slots новий
-виклик одразу отримує `503`, без черги buffers у пам'яті. Slot звільняється
-і після успіху, і після помилки. Ліміт окремий для кожної репліки API;
-його потрібно підбирати під RAM контейнера. Він не обмежує кількість buffers,
-які multipart transport ще тільки приймає: `FileInterceptor` має окремі per-request
-limits. Кожен Sharp render має timeout 15 секунд обробки;
-це не загальний HTTP deadline і не включає очікування libuv worker.
-
-Помилки processor: `413` для перевищення byte limit, `400` для невалідного
-формату, анімації, пошкодженого файлу або pixel limit, відхиленого Sharp;
-`413` також можливий при перевищенні dimensions після metadata inspection.
-Фактичний формат перевіряється незалежно від client MIME. APNG виявляється за
-chunk `acTL`: поле `pages` у Sharp metadata не охоплює animated PNG.
-Джерела: [Sharp metadata](https://sharp.pixelplumbing.com/api-input/),
-[PNG animation control](https://www.w3.org/TR/png-3/#acTL-chunk),
-[Sharp output і timeout](https://sharp.pixelplumbing.com/api-output/).
-
-## 5. Модель даних
-
-Поточна модель уже підтримує три derivative-файли й безпечне визначення ключів
-для видалення об'єктів:
-
-```prisma
-model ProductImage {
-  id String @id @default(uuid())
-
-  storageKeyBase String @unique
-  thumbnailUrl  String
-  mediumUrl     String
-  largeUrl      String
-
-  alt       String?
-  width     Int
-  height    Int
-  sortOrder Int     @default(0)
-  isPrimary Boolean @default(false)
-
-  createdAt DateTime @default(now())
-
-  productId String
-  variantId String?
-  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant   ProductVariant? @relation(fields: [variantId, productId], references: [id, productId], onDelete: Cascade)
-
-  @@index([productId])
-  @@index([variantId])
-  @@index([sortOrder])
-  @@index([isPrimary])
-}
-```
-
-`storageKeyBase` має значення на кшталт
-`products/{productId}/{imageId}`. Воно потрібне для видалення всіх derivative
-objects без парсингу URL.
-
-`width` і `height` — додатні фактичні dimensions **large-версії** після
-orientation та resize, не dimensions оригіналу і не розміри всіх трьох файлів.
-`storageKeyBase`, URL і dimensions формує виключно сервер після Sharp/R2.
-
-Порожня галерея є нормальним станом продукту. Placeholder показує frontend;
-вигадані storage keys або URL не записуються в `ProductImage`.
-
-Повні URL допустимо зберігати для простого MVP. Якщо CDN-домен очікувано буде
-змінюватися, краща альтернатива — зберігати окремі object keys і будувати URL
-через `R2_PUBLIC_BASE_URL` у response mapper. Не можна виводити storage credentials або
-внутрішній R2 endpoint у публічну відповідь.
-
-Зміна Prisma schema виконується за стандартним flow із
-[`db-migration-flow.md`](./db-migration-flow.md).
-
-## 6. API
-
-### Upload endpoint
-
-JSON-заглушку замінено на multipart upload. R2 credentials залишаються на API.
+### Завантаження
 
 ```http
 POST /api/products/:productId/images
@@ -221,557 +62,133 @@ Content-Type: multipart/form-data
 Authorization: Bearer <admin-or-manager-token>
 ```
 
-Поля:
+Поля запиту:
 
-- `file` — обов'язковий файл;
-- `variantId` — optional UUID; відсутність поля означає спільну галерею;
-- `alt` — optional text;
-- `sortOrder` — optional non-negative integer, default `0`;
-- `isPrimary` — optional boolean, default `false`.
+- `file` — один обов'язковий файл JPEG, PNG або WebP без анімації;
+- `variantId` — необов'язковий UUID; для спільної галереї поле пропускається;
+- `alt` — необов'язковий текст;
+- `sortOrder` — невід'ємне ціле число до `2147483647`, default `0`;
+- `isPrimary` — `true` або `false`, default `false`.
 
-У `multipart/form-data` metadata надходить рядками. `UploadProductImageSchema`
-у contracts явно розпізнає `"true"`/`"false"` та десяткові невід'ємні цілі числа
-до `2147483647` (PostgreSQL Int); інші значення відхиляються.
-Не використовувати `z.coerce.boolean()` для `"false"`. Не передавати `null` як
-текст для `variantId`; у FormData поле просто пропускається. `alt` у JSON update
-залишається nullable для очищення опису.
+Multipart-поля надходять рядками. Парсинг і strict validation визначені в
+[UploadProductImageSchema](../packages/contracts/src/product-images/inputs/upload-product-image.schema.ts).
+`productId` береться з route; URL, ключі та dimensions формує сервер.
+У FormData не передається текст `"null"` замість відсутнього `variantId`.
 
-`productId` береться лише з route. Strict input відхиляє `storageKeyBase`, URL,
-dimensions та інші невідомі metadata-поля. Бінарний файл обробляє interceptor,
-а request metadata — спільна Zod-схема і тонкий `createZodDto`.
+Multer приймає файл у пам'ять із лімітами розміру, кількості файлів і полів.
+Sharp перевіряє фактичний вміст незалежно від client MIME. Після обробки
+API послідовно завантажує три файли, потім у короткій DB-транзакції повторно
+перевіряє власника, змінює primary за потреби та створює один `ProductImage`.
+Sharp і R2-запити виконуються поза DB-транзакцією.
 
-`MulterModule.registerAsync` отримує перевірений `IMAGE_PROCESSING_CONFIG`:
-`fileSize` дорівнює `IMAGE_MAX_FILE_SIZE_BYTES`, `files: 1`, `fields: 4`,
-`parts: 6`, `fieldSize: 4096` bytes, `fieldNameSize: 100` bytes. Запит із файлом
-і всіма чотирма metadata-полями проходить. Повторені scalar-поля, вкладені
-metadata, невідоме ім'я file-поля та зайві файли відхиляються.
-Multer зберігає input у пам'яті; client MIME не визначає допустимий формат —
-це перевіряє Sharp за фактичним вмістом.
+Успішна відповідь — `201` із
+[ProductImageSchema](../packages/contracts/src/product-images/schemas/product-images.schema.ts);
+`createdAt` серіалізується в ISO string. Основні помилки:
 
-Endpoint:
+- `400` — невалідні metadata, формат, анімація, пошкоджений файл або відхилення Sharp;
+- `401` / `403` — немає автентифікації або потрібної ролі;
+- `404` — продукт або відповідний варіант не знайдений;
+- `408` — після отримання product lock виявлено прострочений upload;
+- `413` — перевищено byte limit або pixel limit під час явної перевірки dimensions;
+- `503` — processor зайнятий або storage недоступний.
 
-1. guards перевіряють роль `ADMIN` або `MANAGER`;
-2. `FileInterceptor('file')` приймає один файл із multipart limits;
-3. API перевіряє route ID, metadata, product і належність variant;
-4. генерує `imageId` і перевіряє файл через Sharp;
-5. створює derivatives у пам'яті з обмеженою паралельністю;
-6. завантажує всі три derivatives у R2;
-7. створює `ProductImage` і змінює primary image в одній DB transaction;
-8. повертає `201` і response, який проходить `ProductImageSchema`.
-
-До завершення upload не тримати DB transaction відкритою. При помилках R2 або
-запису в БД виконувати cleanup згідно з розділом 10.
-
-Swagger описує `multipart/form-data`, binary `file` і відповіді:
-`201`, `400` (невалідний файл/metadata), `401`, `403`, `404`, `413` (ліміт
-розміру файлу), `503` (недоступність storage або зайнятий processor).
-Перевищення кількості multipart parts/fields/files або розміру text field дає
-`400`. Відповідь `201` перевіряється через `ZodSerializerDto(ProductImagesDto)`;
-`createdAt` перед серіалізацією перетворюється на ISO string.
-
-Для ручної перевірки у Postman: `POST` на route вище, Bearer token користувача
-`ADMIN`/`MANAGER`, Body → form-data, `file` типу File; решта полів — Text.
-`Content-Type` вручну не задавати. У dev environment перевірити три URL з
-відповіді та один DB record; ключі мають бути
-`products/{productId}/{imageId}/{thumbnail|medium|large}.webp`.
-
-### Metadata operations
+### Оновлення, читання та видалення
 
 ```http
 PUT    /api/product-images/id/:id
 DELETE /api/product-images/:id
 GET    /api/product-images/id/:id
+GET    /api/product-images
 ```
 
-Це наявні routes, які зберігаємо в межах фічі. `PUT` уже приймає часткове
-оновлення metadata: `alt`, `sortOrder`, `isPrimary`. Зміна
-`productId` або `variantId` після upload не дозволяється. Для перенесення
-зображення між галереями його потрібно видалити і завантажити заново.
+`PUT` частково оновлює `alt`, `sortOrder`, `isPrimary`; `alt: null` очищує опис.
+Власника й файл цей endpoint не змінює. Глобальний `GET` повертає всі зображення
+без pagination, у порядку `createdAt DESC`.
 
-Перехід на семантично точніший `PATCH` можна виконати окремою узгодженою API
-зміною; він не є передумовою upload.
+Заміна файла складається із завантаження нового зображення та видалення старого
+після успішного upload. Новий файл отримує новий `imageId` і URL. Ці два запити
+не є атомарною операцією. Об'єкти мають
+`Cache-Control: public, max-age=31536000, immutable`.
 
-Наявний глобальний `GET /api/product-images` не потрібен storefront. Для admin
-listing, якщо він знадобиться, треба додати pagination і filters, а не повертати
-всю таблицю.
+## Узгодженість БД і R2
 
-## 7. Межі модулів
+Спільної транзакції між PostgreSQL і R2 немає. При помилці upload або запису
+в БД `cleanupUpload()` спочатку перевіряє результат commit: якщо `ProductImage`
+існує, файли зберігаються. Якщо запису немає, створюються durable cleanup tasks
+для всіх трьох ключів. За недоступної БД файли залишаються до recovery.
+Детальний алгоритм — у [поясненні create()](../apps/api/src/modules/product-images/docs/create-product-images.md).
 
-```text
-apps/api/src/
-  common/storage/
-    object-storage.interface.ts
-    r2-storage.config.ts
-    r2-storage.service.ts
-    storage.module.ts
-  common/images/
-    images.module.ts
-    image-processor.service.ts
-    image-profiles.ts
-    images.config.ts
-    png-animation.ts
-  modules/product-images/
-    dto/
-    image-cleanup.service.ts
-    image-recovery.service.ts
-    image-storage.utils.ts
-    product-image-storage.module.ts
-    product-images.controller.ts
-    product-images.service.ts
-    product-images.module.ts
-  scripts/
-    images-recover.ts
+Create/update серіалізують зміни через `SELECT ... FOR UPDATE` на рядку продукту
+та `ReadCommitted`. Це працює і для порожньої галереї, але зміни різних галерей
+одного продукту також чекають одна на одну. Окремого unique constraint для
+primary немає: інваріант залежить від спільного lock-протоколу.
 
-packages/contracts/src/product-images/
-  inputs/
-  schemas/
-  types/
-```
+### Видалення та cleanup
 
-Відповідальності:
+[ImageCleanupService](../apps/api/src/modules/product-images/image-cleanup.service.ts)
+використовує transactional outbox:
 
-- `ObjectStorage` — interface для put/delete objects, без Prisma і знань про Product;
-- `R2StorageService` — один `S3Client` на service, credentials, bucket, storage
-  errors і public URLs; приймає `ContentType` та `CacheControl` від caller,
-  для derivatives використовуються `image/webp` та immutable cache policy;
-- `ImageProcessorService` — validation metadata і генерація derivatives;
-- `ProductImagesService` — ownership, primary image, DB/R2 orchestration;
-- `ImageCleanupService` — transactional cleanup outbox, retry і безпечне видалення keys;
-- `ImageRecoveryService` — pagination, grace period, orphan і missing-file перевірки;
-- `ProductImageStorageModule` — cleanup/recovery без HTTP guards; спільний для
-  Product, ProductVariant, ProductImages і CLI;
-- `@repo/contracts` — request metadata і HTTP response schemas;
-- controller — multipart transport, guards і Swagger.
+1. DB-транзакція бере product lock, додає `ImageCleanupTask` для кожного файла
+   та видаляє записи зображень.
+2. Після commit сервіс видаляє об'єкти з R2.
+3. Успішне видалення прибирає task; невдале залишає його для повторної спроби.
 
-Interface інжектувати через runtime DI token; TypeScript interface сам по собі
-не є Nest provider. Реалізований token — `OBJECT_STORAGE`; він посилається на
-той самий singleton `R2StorageService`. Інші модулі імпортують `StorageModule`
-та інжектують `ObjectStorage` через `@Inject(OBJECT_STORAGE)`.
-`storageKeyBase` генерує `ProductImagesService`, а не клієнт.
-Наявна response-схема — `ProductImageSchema`; окрема папка `responses/` потрібна
-лише якщо HTTP shape відрізнятиметься від сутності.
+Task містить ключ, IDs, кількість спроб і `nextAttemptAt`. Foreign keys відсутні,
+щоб задачі переживали видалення продукту чи варіанта. Перед видаленням файла
+повторно перевіряються посилання в БД; об'єкти живого `ProductImage` зберігаються.
 
-Storage потрібно сховати за власним interface. Це дає MinIO для local та fake
-storage для тестів без умов `if (development)` у доменному service.
+Cleanup виконує до трьох спроб на ключ із паузами 100/200 ms; SDK має власні
+retries. Невдала спроба відкладає наступну scheduled обробку на хвилину.
+Повторний `DELETE` запускає cleanup одразу. Якщо R2 cleanup не завершився,
+endpoint повертає `503`, хоча запис у БД уже видалений. Після завершення cleanup
+повторний `DELETE` повертає `204`; відсутній об'єкт у R2 не є помилкою.
 
-## 8. Конфігурація
+Hard delete продукту очищає всі його галереї, варіанта — лише власну.
+Зміна `deletedAt` або `isActive` не запускає cleanup; recovery враховує також
+посилання неактивних і soft-deleted продуктів.
 
-```env
-R2_ACCOUNT_ID=
-R2_BUCKET=market-cosmo-prod
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-R2_PUBLIC_BASE_URL=https://images.svash.shop
+### Recovery
 
-IMAGE_MAX_FILE_SIZE_BYTES=10485760
-IMAGE_MAX_INPUT_PIXELS=40000000
-IMAGE_PROCESSING_CONCURRENCY=2
-```
+[ImageRecoveryService](../apps/api/src/modules/product-images/image-recovery.service.ts)
+обробляє pending tasks, знаходить старі об'єкти без запису в БД та записи
+з відсутніми файлами. Читання відбувається сторінками по 100 записів.
 
-Це приклад production-конфігурації: у development замінити bucket і public
-base URL на dev-значення. R2 endpoint будувати з `R2_ACCOUNT_ID`:
-`https://<account-id>.r2.cloudflarestorage.com`, region — `auto`.
-`R2_ENDPOINT` для звичайного R2 не обов'язковий. MinIO матиме окремі endpoint,
-credentials і налаштування path-style addressing у своєму adapter/config.
-
-Env variables мають проходити startup validation. Secrets не комітяться і не
-передаються на frontend. Для R2 token потрібно надати доступ лише до потрібного
-bucket з мінімально необхідними object read/write permissions.
-
-Три `IMAGE_*` параметри необов'язкові: значення вище є defaults. Якщо задані,
-вони мають бути додатними цілими числами; порожнє значення є помилкою.
-Zod-конфігурація й allowlist image metadata знаходяться у
-`packages/contracts/src/common/images.schema.ts`. `ImagesModule` перевіряє
-конфігурацію при запуску API через `ConfigService`.
-
-Startup validation реалізована через `R2StorageConfigSchema` у
-`packages/contracts/src/common/storage.schema.ts`. Public base URL повинен бути
-HTTPS без credentials, query чи fragment; trailing slash нормалізується.
-Помилка запуску містить лише назви некоректних env variables, без їх значень.
-Object keys — server-generated ASCII paths до 1024 символів; URL, порожні
-segments, `.`/`..`, backslash і percent-encoding відхиляються до S3-запиту.
-
-Adapter використовує до трьох SDK attempts, connection timeout 5 секунд і
-загальний deadline операції 30 секунд. SDK errors перетворюються на `503`;
-у logs залишаються operation, key і HTTP status, без raw exception/credentials.
-Повторне видалення відсутнього key успішне; відсутній bucket або заборона доступу
-залишаються помилкою. При закритті Nest module звільняються ресурси S3 client.
-
-Unit-тести запускаються без `.env`, мережі й БД:
+Команда з кореня repo після збірки API:
 
 ```bash
-pnpm --filter api test:unit
-```
-
-E2E setup задає фіктивні R2 credentials. Для майбутніх upload e2e потрібно
-перевизначити provider `OBJECT_STORAGE` на fake storage, щоб не виконувати
-зовнішні запити. MinIO adapter ще не реалізовано.
-
-## 9. Validation і security
-
-- максимальний розмір upload: початково 10 MiB;
-- allowlist MIME: JPEG, PNG, WebP;
-- перевіряти не лише client `Content-Type`, а й реально декодувати файл Sharp;
-- встановити `fileSize`, `files: 1`, `fields`, `parts` і `fieldSize` на рівні
-  multipart interceptor; `MaxFileSizeValidator` після приймання файлу недостатньо
-  для контролю пам'яті під час upload;
-- обмежити dimensions/pixel count для захисту від decompression bombs;
-- генерувати server-side object keys;
-- не включати original filename у public key;
-- rate limit admin upload endpoint;
-- не дозволяти довільний bucket/key у request body;
-- логувати `imageId`, `productId` і результат операції, але не file buffer;
-- R2 CORS для server-to-server upload не потрібен; CORS React → NestJS
-  налаштовується окремо, CDN/read CORS — лише якщо цього потребує клієнтський сценарій.
-
-На MVP рекомендується upload через NestJS, а не presigned direct upload: API має
-перевірити й перетворити файл до збереження. Direct upload має сенс пізніше для
-дуже великих файлів або високого навантаження.
-
-## 10. Consistency і cleanup
-
-R2 і PostgreSQL не підтримують спільну транзакцію. Потрібна compensating logic:
-
-### Upload failure
-
-```text
-generate derivatives
--> upload all R2 objects
--> DB transaction
--> якщо DB operation failed, best-effort delete uploaded objects
-```
-
-Upload трьох derivatives послідовний. Якщо PUT або DB-транзакція впали,
-API спочатку перевіряє, чи image record усе-таки існує: втрачений commit
-acknowledgement не означає rollback. Якщо запис існує, його objects не видаляються.
-Якщо БД недоступна і результат commit невідомий, objects зберігаються до recovery.
-
-За відсутності record створюються `ImageCleanupTask` для всіх трьох keys,
-включно з ключем невдалого PUT: storage міг прийняти bytes до втрати відповіді.
-Далі виконується cleanup із retry. Початкова upload-помилка не маскується;
-невидалені keys та IDs логуються. Durable task переживає перезапуск API.
-Якщо task не вдалося записати через недоступність БД або процес завершився
-раніше, aged orphan objects знайде recovery scan.
-
-Після Sharp upload має 5-хвилинне вікно для DB commit. Deadline повторно
-перевіряється після product lock, перед insert; прострочений upload отримує
-`408` і запускає компенсацію. Мінімальна recovery grace — 1 година, default —
-24 години. Це не дає дуже пізньому upload створити record для вже очищених keys.
-
-### Primary image і конкурентність
-
-`updateMany(isPrimary: false)` і створення/оновлення primary image виконуються
-однією короткою транзакцією в межах `(productId, variantId)`. Реалізація використовує
-`SELECT ... FOR UPDATE` на рядку `Product` і явно заданий `ReadCommitted`:
-create/update спочатку беруть той самий lock, навіть для порожньої галереї.
-Наступний writer читає актуальний стан після звільнення lock. Це замінює
-запланований `Serializable` із retries: менше повторних транзакцій, але metadata
-зміни різних галерей одного продукту теж короткочасно чекають одна на одну.
-Sharp/R2 виконуються до відкриття транзакції.
-
-Update повторно читає image після lock; інші primary скидаються тільки при
-явному `isPrimary: true`. Запит лише з `alt` не використовує застарілий
-`isPrimary` із попереднього читання. Shared і variant галереї не скидають
-primary одна одної. Усі нові writers primary image мають дотримуватися цього
-lock-протоколу; окремого DB unique constraint для primary image поки немає.
-Деталі механізму: [PostgreSQL row locks](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS).
-
-Тест має підтвердити не більше одного primary image у кожній галереї та
-незалежність спільної галереї від галерей варіантів.
-
-### Delete
-
-Реалізовано DB-first delete з transactional outbox замість попереднього
-storage-first плану. Це дозволяє не тримати DB transaction під час R2-запитів
-і не втрачати список objects після cascade або перезапуску процесу.
-
-1. Коротка `ReadCommitted` transaction бере product row lock.
-2. Перевіряє право видалення (зокрема останній/default variant) і збирає images.
-3. Для кожного image створює три `ImageCleanupTask` та видаляє DB records.
-4. Після commit виконує R2 deletes. Відсутній object — успіх.
-5. Успішний delete прибирає task; невдалий лишає його для retry.
-
-`ImageCleanupTask` містить `key`, `productId`, `imageId`, nullable `variantId`,
-`attempts`, `nextAttemptAt`, `createdAt`. Foreign keys навмисно відсутні:
-завдання повинні переживати видалення агрегату. Міграція:
-`20260919194613_add_image_cleanup_tasks`.
-
-Кожен key має до трьох спроб з паузами 100/200 ms; SDK також має власний retry.
-Після невдачі наступна job-спроба доступна через хвилину. Повторний DELETE
-явно запускає cleanup одразу, не чекаючи `nextAttemptAt`. Якщо cleanup не
-завершений, endpoint повертає `503`, але DB deletion уже committed.
-Повторний запит до вже видаленого image/product/variant дає `204`, коли pending
-tasks завершені. При DB failure до commit ні records, ні tasks не змінюються;
-R2 cleanup не починається. Збій підтвердження task після успішного R2 delete
-також безпечний: наступний retry повторить idempotent delete.
-
-Keys будуються лише зі збереженого `storageKeyBase`; додатково звіряються з
-`productId` та `imageId`. Невідповідний prefix дає `409` до видалення файлів.
-Product hard delete очищає всі його галереї; variant hard delete — лише власну.
-Variant create/update/delete використовують той самий product lock, тому
-конкурентні delete не обходять правило останнього варіанта/default.
-
-Якщо upload committed першим, aggregate delete бачить image й додає tasks.
-Якщо delete committed першим, upload повторно перевіряє ownership, відхиляється
-й компенсує PUTs. Storage calls завжди поза DB transaction.
-
-`Product.deletedAt` уже є у схемі; новий soft-delete endpoint тут не вводиться.
-Зміна `deletedAt` або `isActive` не створює cleanup tasks. Recovery перевіряє
-DB references без фільтра active/deletedAt, тому файли зберігаються для restore.
-
-### Recovery command
-
-Після зміни коду спочатку `pnpm --filter api build`. Команди з кореня repo:
-
-```bash
-# Read-only report: due tasks, aged orphan keys, records with missing files.
 pnpm --filter api images:recover
-
-# Apply queued cleanup and delete orphan objects older than 24 hours.
-pnpm --filter api images:recover --apply --grace-hours 24
-
-# Additionally delete incomplete image records and their remaining derivatives.
-pnpm --filter api images:recover --apply --remove-broken-records --grace-hours 24
-
-pnpm --filter api images:recover --help
 ```
 
-Command читає `apps/api/.env` / environment для DATABASE_URL і R2; спільний
-database client також підхоплює `packages/database/.env`, якщо DATABASE_URL
-ще не задано. Перевіряти
-development слід з dev bucket; production job має використовувати парну
-production DB/bucket конфігурацію. Dry run не змінює tasks, records або objects.
-`--remove-broken-records` без `--apply` також лише звітує. Grace задається у
-годинах, дозволений діапазон 1–8760; default 24.
+За замовчуванням це dry run без змін даних. `--apply` виконує cleanup tasks
+і видаляє orphan objects. `--grace-hours` задає мінімальний вік об'єктів для
+orphan scan: default 24 години, мінімум 1 година. Pending tasks обробляються
+за `nextAttemptAt`, незалежно від orphan grace.
 
-Спочатку обробляються due tasks, потім paginated LIST лише `products/`.
-Дозволені тільки canonical keys
-`products/{productUuid}/{imageUuid}/{thumbnail|medium|large}.webp`.
-Перед orphan delete перевіряються DB reference та актуальний HEAD timestamp;
-свіжі objects і keys інших форматів пропускаються. Для orphan теж записується
-durable task. Повторні workers можуть безпечно виконати той самий delete.
+Перед orphan delete перевіряються DB references та актуальний HEAD timestamp.
+Missing files потрапляють у звіт; записи з ними видаляються лише з окремим
+`--remove-broken-records` разом із `--apply`. Recovery не відновлює втрачені файли.
+Розклад не створюється автоматично. Команди запуску, конфігурація DB/bucket
+і правила застосування описані в [production guide](./product-images-production.md).
 
-Окремий paginated scan перевіряє HEAD трьох derivatives у старих DB records.
-Відсутні файли потрапляють у `missing-files` report; `403`/network/storage errors
-є failures, а не ознакою відсутності. Без `--remove-broken-records` DB records
-залишаються. З цим прапорцем весь неповний image видаляється через звичайний
-outbox flow; втрачені pixels автоматично не відновлюються — потрібен backup
-або повторний upload оригіналу. Перед destructive режимом переглянути dry run.
+## Використання галереї клієнтом
 
-Вивід містить JSON events і summary; exit code 1 означає failure. Logs містять
-keys, IDs і attempt/result без buffers та credentials. Команда придатна для
-cron/systemd timer або scheduler платформи; розклад автоматично не встановлюється.
-Пам'ять обмежена сторінками по 100 DB/storage записів, обробка послідовна.
-CDN може ще віддавати кешований файл після видалення origin object.
+Правило вибору: власна галерея варіанта має пріоритет, за її відсутності
+використовується спільна галерея продукту. Порядок показу — `isPrimary DESC`,
+потім `sortOrder ASC`; порожня галерея потребує локального placeholder.
+Це правила інтеграції клієнта, а не підтвердження готовності storefront.
 
-## 11. Storefront integration
+API надає `thumbnailUrl`, `mediumUrl` і `largeUrl`; межі розмірів описані в
+[ImagesModule](../apps/api/src/common/images/docs/images.md).
+`width`/`height` у відповіді належать large-версії. CDN може ще віддавати кешований
+файл після його видалення з R2.
 
-- catalog використовує `thumbnailUrl`;
-- product gallery спочатку використовує `mediumUrl`;
-- `largeUrl` завантажується для zoom/fullscreen;
-- `alt` має бути доступний у product response;
-- порожня галерея показує локальний placeholder без запису в `ProductImage`;
-- власна галерея варіанта має пріоритет, інакше використовуються спільні images;
-- масив сортується за `isPrimary DESC`, потім `sortOrder ASC`;
-- `next/image` дозволяє тільки hostname custom CDN domain;
-- immutable object keys можна кешувати довго:
-  `Cache-Control: public, max-age=31536000, immutable`.
+## Перевірки
 
-Використовувати lazy loading і responsive `sizes`. Не підставляти dimensions
-large-версії як фактичні dimensions thumbnail/medium; зберігати правильне aspect
-ratio й перевірити layout на портретних та малих зображеннях.
+- [images.unit-spec.ts](../apps/api/test/images.unit-spec.ts) — Sharp, формати,
+  розміри, EXIF, прозорість та ліміти.
+- [product-images.e2e-spec.ts](../apps/api/test/product-images.e2e-spec.ts) —
+  upload/update/delete, конкурентність, compensation і recovery з fake storage
+  та окремою тестовою БД.
 
-Заміна файлу створює новий `imageId`/key. Не треба перезаписувати object під тим
-самим immutable URL, інакше CDN може довго показувати старе зображення.
-
-## 12. План реалізації
-
-Підготовка моделі, міграції, seed і базових contracts уже виконана, див. розділ 1.
-Подальший порядок: **R2 adapter → Sharp → multipart upload → cleanup → storefront**.
-Тести додаються в кожному етапі, а не відкладаються до кінця.
-
-### Етап 1 — R2 storage adapter і конфігурація
-
-Етап завершено: код, 33 unit-тести та реальний dev upload/read/delete smoke test
-пройшли. Production bucket у перевірці не використовувався.
-
-- додати `@aws-sdk/client-s3`;
-- створити `ObjectStorage` interface;
-- реалізувати put/delete у R2 adapter без залежності від Prisma;
-- додати startup validation, singleton `S3Client` і public URL builder;
-- передавати content type і cache headers;
-- налаштувати dev bucket і перевірити його public URL;
-- unit-тести через mock S3 client: конфігурація, keys, headers, storage errors
-  і повторне видалення відсутнього об'єкта.
-
-Критерій готовності: тестовий об'єкт у dev bucket завантажується, відкривається
-через public URL та видаляється. Credentials не потрібні для unit-тестів.
-
-```text
-feat(api): add R2 storage adapter and config validation
-```
-
-### Етап 2 — Sharp image processing
-
-Етап завершено: додано 28 тестів конфігурації та processor, перевірки працюють
-із реальним Sharp без R2 і БД; fixtures генеруються в пам'яті.
-`pnpm --filter api test:unit` — 61 тест разом із storage suite;
-На завершенні цього етапу також проходили наявні 152 e2e-тести.
-
-- додати `sharp`;
-- реалізувати validation і metadata inspection;
-- генерувати thumbnail/medium/large;
-- додати byte/pixel limits і обмежити одночасну обробку;
-- повертати три buffers і фактичні dimensions;
-- протестувати landscape, portrait, EXIF orientation, small image, corrupted
-  file, oversized input, unsupported format та animated PNG/WebP.
-
-Критерій готовності: processor генерує три валідні WebP у межах профілів,
-не збільшує маленькі images і відхиляє невалідні файли до storage upload.
-
-```text
-feat(api): add validated WebP image processing
-```
-
-### Етап 3 — multipart endpoint і заміна заглушки
-
-Етап реалізовано. Інтеграційні тести використовують реальний Sharp,
-окрему `TEST_DATABASE_URL` та fake storage без доступу до R2. Перевіряються
-формат/кількість objects і DB records, response contract, transport limits,
-authorization, ownership, компенсація upload/DB failure, помилка cleanup та
-конкурентні primary uploads/updates. Додано 35 unit- і 25 інтеграційних тестів;
-повні suites: 96 unit та 177 e2e проходять. Міграція для цього етапу не потрібна.
-
-- додати `@types/multer` як dev dependency; `@nestjs/platform-express` уже є;
-- додати `FileInterceptor` з limits і приймання одного `file`;
-- додати явний парсинг multipart metadata у contracts зі strict validation;
-- зберегти route, role guards і перевірки product/variant ownership;
-- зв'язати processing, R2 і Prisma через `ProductImagesService`;
-- генерувати UUID keys і всі службові поля тільки на сервері;
-- реалізувати конкурентно безпечне перемикання primary image;
-- одразу додати cleanup часткових uploads і компенсацію при DB failure;
-- замінити `501` на `201` і задокументувати multipart у Swagger.
-
-Критерій готовності: валідний upload створює рівно три objects і один DB record,
-response проходить `ProductImageSchema`. Перевірені `401`/`403`, неправильний
-product/variant, відсутній файл, заборонені metadata-поля, рядковий `false`,
-partial R2 failure, DB failure та паралельні primary uploads/updates.
-
-```text
-feat(api): implement multipart product image uploads
-```
-
-### Етап 4 — видалення і recovery
-
-Етап реалізовано з durable outbox і command. Перевірки охоплюють image/product/
-variant deletion, partial failures і retry, upload/delete races, soft-delete
-references, paginated orphan scan, dry run, grace, missing files і HEAD errors.
-Міграцію застосовано до development і `market_cosmo_test`. Перевірки:
-106 unit + 195 e2e, typecheck, lint і build; реальний dev recovery dry run
-завершився з `dryRun: true, failures: 0`, без змін даних.
-
-- видаляти три derivatives за server-owned `storageKeyBase`;
-- забезпечити повторне виконання після часткового storage/DB failure;
-- інтегрувати cleanup у hard delete продукту й варіанта;
-- при soft delete зберігати файли для відновлення;
-- врахувати гонки між upload і видаленням агрегату;
-- додати cleanup retry, orphan command/job із dry run і grace period;
-- логувати storage failures та результат retry без buffers і secrets.
-
-Критерій готовності: image/product/variant deletion очищає потрібні objects,
-не зачіпає чужі галереї, а повторне виконання завершує часткове видалення.
-Recovery перевірено для orphan objects і records із відсутніми файлами.
-
-```text
-feat(api): clean up stored product images on deletion
-```
-
-### Етап 5 — storefront
-
-- перевірити, що product list/detail responses відповідають оновленим contracts;
-- налаштувати `next/image` remote pattern;
-- реалізувати variant-gallery fallback;
-- показувати локальний placeholder для порожньої галереї;
-- додати lazy loading і responsive `sizes`;
-- перевірити CDN caching headers.
-
-Критерій готовності: catalog, gallery і zoom використовують відповідні URL,
-порожні галереї мають fallback, layout коректний на mobile/desktop, заміна
-файлу отримує новий URL.
-
-```text
-feat(web): render product image derivatives with fallback
-```
-
-### Фінальна перевірка MVP
-
-- запустити unit-тести processor, storage і domain orchestration;
-- e2e upload/update/delete з fake/MinIO storage та окремою `TEST_DATABASE_URL`;
-- перевірити паралельність, authorization і всі error/cleanup сценарії;
-- виконати upload/read/delete smoke test із dev R2;
-- перевірити docs, Swagger, startup validation, structured logs і recovery;
-- перевірити CPU/RAM та upload latency при кількох одночасних запитах.
-
-```bash
-pnpm --filter @repo/contracts build
-pnpm --filter api test:unit
-pnpm --filter @repo/database check-types
-pnpm --filter api check-types
-pnpm --filter api lint
-pnpm --filter api build
-pnpm --filter api test:e2e
-pnpm --filter web check-types
-```
-
-E2E запускаються лише з окремою тестовою БД, налаштованою через
-`TEST_DATABASE_URL`. Після frontend-змін також виконати релевантні web lint/build.
-Документацію оновлювати разом із відповідним етапом; наведені commit messages —
-межі роботи, а не перелік уже створених комітів.
-
-## 13. Definition of Done
-
-- JPEG/PNG/WebP upload створює три WebP derivatives у R2;
-- corrupted, oversized, animated і unsupported files відхиляються з `400`/`413`;
-- multipart metadata нормалізується, службові поля від клієнта відхиляються;
-- product/variant ownership перевіряється;
-- лише `ADMIN`/`MANAGER` можуть змінювати галерею;
-- primary image invariant зберігається конкурентно безпечно;
-- partial upload/DB failure запускає cleanup; невдалий cleanup доступний для
-  retry та періодичного reconciliation, включно зі збоєм процесу API;
-- delete прибирає DB record і всі derivative objects;
-- завершений hard delete product/variant не залишає R2 objects; soft delete,
-  якщо він буде реалізований, зберігає файли для відновлення;
-- storefront правильно застосовує variant fallback і локальний placeholder;
-- обмежені input size, pixels, multipart fields та паралельна обробка;
-- smoke test dev R2 підтверджує upload/read/delete і cache headers;
-- contracts build, API typecheck/lint/build і e2e-тести проходять;
-- secrets відсутні у git, logs і HTTP responses.
-
-## 14. Не входить у MVP
-
-- відео та animated images;
-- client-side direct upload;
-- AVIF і автоматичний content negotiation;
-- AI background removal або smart crop;
-- окремий DAM/media library;
-- asynchronous processing через queue;
-- deduplication за content hash.
-
-Наступний крок масштабування за потреби — presigned upload у приватне тимчасове
-сховище й Sharp worker, який публікує лише перевірені derivatives. Це окремий
-flow зі статусами обробки та cleanup оригіналів, а не прямий upload довільного
-файлу в публічну галерею.
-
-Ці можливості варто додавати лише після вимірювання upload latency, storage
-cost і реального навантаження.
-
-## 15. Офіційні джерела для реалізації
-
-- [NestJS file upload](https://docs.nestjs.com/techniques/file-upload) —
-  `FileInterceptor`, `UploadedFile`, file validation і Multer typings.
-- [Multer](https://github.com/expressjs/multer#limits) — multipart limits і
-  memory storage.
-- [Cloudflare R2 з AWS SDK v3](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/) —
-  endpoint, region і S3 commands.
-- [R2 S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/) —
-  підтримувані операції, headers та обмеження ACL.
+Налаштування середовища й команди перевірки наведені в
+[production guide](./product-images-production.md).
