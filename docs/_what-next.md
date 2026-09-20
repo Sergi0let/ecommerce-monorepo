@@ -1,178 +1,69 @@
-# Що робити після базового Auth
+# Де продовжуємо API
 
-Не переходити одразу до великого нового модуля. Спочатку потрібно завершити
-Auth/Users security flows і зафіксувати їх тестами.
+Найближча робота: короткий fix Auth / Users, потім **Reviews**.
+Повний залишок roadmap — у [api-plan.md](./api-plan.md).
+Після завершення задачі видаляємо її звідси; історію виконаного не накопичуємо.
 
-## Поточний стан
+## 1. Наступна задача — профіль і password flows
 
-Вже готово:
+У [UsersService](../apps/api/src/modules/users/users.service.ts) є дві конкретні
+прогалини:
 
-- Auth e2e-набір для register, login, `/users/me`, refresh і logout;
-- refresh token rotation та відкликання сесії під час logout;
-- модель `PasswordResetToken` і Prisma migration;
-- `POST /api/auth/request-password-reset`;
-- `POST /api/auth/reset-password`;
-- password reset відкликає усі активні `RefreshSession` користувача.
+- `updateProfile()` змінює email без скидання `isEmailVerified` та інвалідації
+  токенів. Найпростіший наступний крок — виключити email зі звичайного profile
+  update й явно відхиляти його в запиті. Зміну адреси робити окремим flow пізніше.
+- `changePassword()` повторно записує `passwordHash` після транзакції.
+  Прибрати другий запис; пароль і відкликання refresh sessions змінювати разом.
 
-У процесі:
+Де працювати:
 
-- e2e-тести password reset;
-- тимчасова delivery reset URL через development log;
-- справжня відправка листів буде пізніше через `MailService` і email provider.
+- [UpdateUserSchema](../packages/contracts/src/users/inputs/update-user.schema.ts)
+  — дозволені поля профілю; реєстрацію не обмежувати разом із profile update.
+- [UsersService](../apps/api/src/modules/users/users.service.ts) — обидва виправлення.
+- [AuthService](../apps/api/src/modules/auth/auth.service.ts) — реалізація reset,
+  яку потрібно покрити тестами.
+- [auth.e2e-spec.ts](../apps/api/test/auth.e2e-spec.ts) — додати e2e для
+  `reset-password`, `change-password` та `PATCH /users/me`.
 
-## 1. Завершити password reset
+Перевірити успішну зміну пароля, неправильний поточний пароль, відхилення
+email у profile update, прострочений/використаний reset token, два конкурентні
+reset-запити та неможливість refresh після відкликання сесій.
+Перевірки request-reset не замінюють перевірки самого reset-password.
 
-Маршрути належать `AuthModule`, бо користувач ще не авторизований:
+## 2. Потім — Reviews
 
-```text
-POST /api/auth/request-password-reset
-POST /api/auth/reset-password
-```
+Перший крок — розширити `Review` у
+[schema.prisma](../packages/database/prisma/schema.prisma): автор, статус
+модерації та унікальність пари user/product. Спочатку перевірити, чи є дані
+для перенесення; наявність моделі не означає готовий Reviews API.
 
-### Request reset password
+Далі contracts → `ReviewsModule` → власні create/update/delete →
+публічний paginated listing → moderation → узгоджений рейтинг продукту.
+Правила та тестові сценарії — у [roadmap](./api-plan.md#2-reviews--наступний-новий-модуль).
 
-Запит приймає:
-
-```json
-{
-  "email": "alice@example.com"
-}
-```
-
-Незалежно від того, чи існує user, API завжди повертає:
-
-```json
-{
-  "message": "If the account exists, a reset email has been sent"
-}
-```
-
-Це не дозволяє перевіряти, які email зареєстровані в системі.
-
-Для існуючого user:
+Робочі файли для нового модуля:
 
 ```text
-створити випадковий raw token
-→ зберегти тільки SHA-256 tokenHash у PasswordResetToken
-→ видалити старі невикористані reset tokens цього user
-→ створити один новий token з expiresAt
-→ надіслати reset URL у листі
+packages/database/prisma/schema.prisma   # Автор і статус відгуку
+packages/contracts/src/reviews/          # Схеми, inputs, views/responses, types
+apps/api/src/modules/reviews/            # Controller, service, module, DTO
+apps/api/test/reviews.e2e-spec.ts         # Права, модерація, рейтинг, гонки
 ```
 
-Raw token не можна повертати в HTTP-відповіді, зберігати в БД або логувати в
-production. Поки немає MailService, reset URL можна логувати лише в development.
+Це заплановані нові директорії та тест, а не наявна реалізація.
 
-### Reset password
+## 3. Наступна черга
 
-Frontend бере token із посилання в листі:
+Cart → атомарне резервування залишків → Orders / checkout → Payments →
+Search / filters. Production-задачі виконати до публічного запуску за
+[окремим розділом roadmap](./api-plan.md#6-перед-публічним-production-запуском).
 
-```text
-http://localhost:3010/reset-password?token=<raw-token>
-```
+## Перевірка змін
 
-Після введення нового пароля надсилає:
-
-```json
-{
-  "token": "<raw-token>",
-  "newPassword": "NewPassword1"
-}
-```
-
-Backend:
-
-```text
-SHA-256(raw token)
-→ знайти tokenHash у БД
-→ перевірити usedAt = null і expiresAt > now
-→ перевірити, що пароль відрізняється від поточного
-→ оновити passwordHash
-→ поставити usedAt
-→ відкликати всі RefreshSession цього user
-```
-
-Оновлення пароля, використання token і відкликання сесій виконуються в одній
-Prisma transaction.
-
-### Обов'язкові e2e-тести
-
-У `apps/api/test/auth.e2e-spec.ts` додати сценарії:
-
-- request повертає однаковий `200` для існуючого й неіснуючого email;
-- request для існуючого user створює `PasswordResetToken` із `tokenHash`,
-  `usedAt: null` і майбутнім `expiresAt`;
-- другий request видаляє старий token та залишає тільки новий;
-- reset змінює пароль, позначає token використаним і відкликає refresh sessions;
-- використаний або протермінований token повертає `400`;
-- поточний пароль не можна використати як новий.
-
-Для ручного тестування міграцій test database дивись
-[`apps/api/test/test-register.md`](../apps/api/test/test-register.md).
-
-## 2. Email verification
-
-Після password reset реалізувати схожий flow:
-
-```text
-POST /api/auth/verify-email
-```
-
-Потрібні одноразовий token, `tokenHash`, `expiresAt`, `usedAt` і запис у БД.
-Після успішної перевірки встановлювати `user.isEmailVerified = true`.
-
-## 3. RolesGuard
-
-У `User` уже є ролі `CUSTOMER`, `ADMIN`, `MANAGER`, але вони ще не обмежують
-доступ до адміністративних операцій.
-
-Потрібно додати `RolesGuard` і закрити ним mutation endpoint-и для продуктів,
-брендів, категорій, цін, варіантів і складів.
-
-Не додавати `GET /users` у password reset commit: список усіх користувачів —
-окрема admin-функція, яка потребує role-based захисту.
-
-## 4. Production hardening
-
-Перед production:
-
-- прибрати fallback JWT secrets;
-- додати централізовану env validation;
-- додати rate limit для register, login, refresh і password reset;
-- підключити `MailService` та email provider;
-- очищати прострочені refresh/reset tokens;
-- перевірити CSRF-модель для web/API deployment;
-- обмежити або закрити публічний `GET /users/:id`.
-
-## 5. Product Images
-
-Після завершення Auth foundation наступний великий модуль за roadmap:
-
-```text
-upload
-→ MIME / file-size validation
-→ Sharp: EXIF removal, resize, WebP
-→ thumbnail / medium / large
-→ Cloudflare R2
-→ зберігати в PostgreSQL лише URL
-```
-
-```text
-variantId = null     → спільне зображення Product
-variantId != null    → зображення конкретного ProductVariant
-```
-
-## Перевірка перед комітом password reset
-
-```bash
-pnpm --filter @repo/database db:generate
-pnpm --filter api check-types
-pnpm --filter api lint
-pnpm --filter api test:e2e
-pnpm --filter api build
-```
-
-Коміт після завершення e2e-тестів:
-
-```text
-feat(api): implement password reset flow
-```
+- Після зміни contracts: `pnpm --filter @repo/contracts build`.
+- Для API: `pnpm --filter api check-types`, `pnpm --filter api lint`,
+  релевантні e2e та `pnpm --filter api build`.
+- E2E виконувати з окремою `TEST_DATABASE_URL` за
+  [інструкцією тестового середовища](../apps/api/test/test-register.md).
+- Для Reviews зі зміною Prisma schema —
+  [міграція та генерація клієнта](./db-migration-flow.md).

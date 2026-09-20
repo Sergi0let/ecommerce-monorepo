@@ -1,5 +1,7 @@
 # 🚀 Deployment Plan
 
+Production rollout Product Images: [checklist конфігурації, міграцій, smoke test і recovery](./product-images-production.md).
+
 ## Архітектура
 
 ```text
@@ -75,10 +77,10 @@ NestJS API.
 DATABASE_URL=postgresql://...
 ```
 
-Після деплою:
+У release job перед запуском нового API, із production DATABASE_URL:
 
 ```bash
-npx prisma migrate deploy
+pnpm --filter @repo/database db:deploy
 ```
 
 ---
@@ -98,12 +100,12 @@ npx prisma migrate deploy
 
 Не зберігати картинки у PostgreSQL.
 
-У БД зберігати лише URL.
+У БД зберігати URLs, object keys та metadata; бінарні файли — у R2.
 
 Приклад:
 
 ```text
-https://cdn.domain.com/products/iphone/front.webp
+https://images.svash.shop/products/{productId}/{imageId}/large.webp
 ```
 
 ---
@@ -150,13 +152,19 @@ Save URLs into PostgreSQL
 У ProductImage зберігати:
 
 ```ts
-id
-productId
-url
-alt
-sortOrder
-isPrimary
-createdAt
+id;
+productId;
+variantId;
+storageKeyBase;
+thumbnailUrl;
+mediumUrl;
+largeUrl;
+width;
+height;
+alt;
+sortOrder;
+isPrimary;
+createdAt;
 ```
 
 ---
@@ -166,12 +174,15 @@ createdAt
 ```env
 DATABASE_URL=
 
-R2_ENDPOINT=
-R2_BUCKET=
-R2_ACCESS_KEY=
-R2_SECRET_KEY=
+R2_ACCOUNT_ID=
+R2_BUCKET=market-cosmo-prod
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_PUBLIC_BASE_URL=https://images.svash.shop
 
-CDN_URL=https://cdn.domain.com
+IMAGE_MAX_FILE_SIZE_BYTES=10485760
+IMAGE_MAX_INPUT_PIXELS=40000000
+IMAGE_PROCESSING_CONCURRENCY=2
 ```
 
 ---
@@ -185,7 +196,7 @@ images: {
   remotePatterns: [
     {
       protocol: "https",
-      hostname: "cdn.domain.com",
+      hostname: "images.svash.shop",
     },
   ],
 }
@@ -213,11 +224,12 @@ images: {
 - [ ] Render або Koyeb
 - [ ] Cloudflare R2
 - [ ] Prisma migrate
-- [ ] Upload API
-- [ ] Sharp optimization
+- [x] Upload API — реалізовано; production smoke test ще потрібен
+- [x] Sharp optimization — реалізовано й перевірено у dev/test
 - [ ] CDN Domain
 - [ ] Environment Variables
 - [ ] Auto Deploy GitHub
+- [ ] Scheduled recovery job та monitoring — див. production checklist
 
 ---
 

@@ -239,7 +239,13 @@ model ProductVariant {
 model ProductImage {
   id String @id @default(uuid())
 
-  url String
+  storageKeyBase String @unique
+  thumbnailUrl   String
+  mediumUrl      String
+  largeUrl       String
+  width          Int
+  height         Int
+
   alt String?
 
   sortOrder Int     @default(0)
@@ -256,6 +262,22 @@ model ProductImage {
   @@index([variantId])
   @@index([sortOrder])
   @@index([isPrimary])
+}
+
+// Durable storage cleanup outbox; deliberately survives Product/Image cascades.
+model ImageCleanupTask {
+  key           String   @id
+  productId     String
+  imageId       String
+  variantId     String?
+  createdAt     DateTime @default(now())
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([imageId])
+  @@index([nextAttemptAt])
 }
 
 model Warehouse {

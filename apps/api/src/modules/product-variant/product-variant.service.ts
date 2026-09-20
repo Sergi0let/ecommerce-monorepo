@@ -8,12 +8,17 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
+import { ImageCleanupService } from '../product-images/image-cleanup.service';
+import { lockImageProduct } from '../product-images/image-storage.utils';
 
 @Injectable()
 export class ProductVariantService {
   private readonly logger = new Logger(ProductVariantService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly imageCleanup: ImageCleanupService,
+  ) {}
 
   async create(data: CreateProductVariantDto) {
     this.logger.log(`Creating product variant ${data.sku}`);
@@ -22,25 +27,28 @@ export class ProductVariantService {
     await this.assertSkuAvailable(data.sku);
     await this.assertSlugAvailable(data.slug);
 
-    const variantsCount = await this.prisma.client.productVariant.count({
-      where: { productId: data.productId },
-    });
-    const shouldBeDefault = data.isDefault || variantsCount === 0;
-
-    if (shouldBeDefault) {
-      return this.prisma.client.$transaction(async (transaction) => {
-        await transaction.productVariant.updateMany({
-          where: { productId: data.productId, isDefault: true },
-          data: { isDefault: false },
+    return this.prisma.client.$transaction(
+      async (transaction) => {
+        if (!(await lockImageProduct(transaction, data.productId)).length)
+          throw new NotFoundException('Product not found');
+        const variantsCount = await transaction.productVariant.count({
+          where: { productId: data.productId },
         });
+        const shouldBeDefault = data.isDefault || variantsCount === 0;
+        if (shouldBeDefault) {
+          await transaction.productVariant.updateMany({
+            where: { productId: data.productId, isDefault: true },
+            data: { isDefault: false },
+          });
 
-        return transaction.productVariant.create({
-          data: { ...data, isDefault: true },
-        });
-      });
-    }
-
-    return this.prisma.client.productVariant.create({ data });
+          return transaction.productVariant.create({
+            data: { ...data, isDefault: true },
+          });
+        }
+        return transaction.productVariant.create({ data });
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   async updateById(id: string, data: UpdateProductVariantDto) {
@@ -58,59 +66,80 @@ export class ProductVariantService {
       await this.assertSlugAvailable(data.slug, id);
     }
 
-    if (data.isDefault === false && variant.isDefault) {
-      throw new BadRequestException(
-        'Set another variant as default before unsetting the current default',
-      );
-    }
-
-    if (data.isDefault === true && !variant.isDefault) {
-      return this.prisma.client.$transaction(async (transaction) => {
-        await transaction.productVariant.updateMany({
-          where: { productId: variant.productId, isDefault: true },
-          data: { isDefault: false },
+    return this.prisma.client.$transaction(
+      async (transaction) => {
+        await lockImageProduct(transaction, variant.productId);
+        const current = await transaction.productVariant.findUnique({
+          where: { id },
         });
+        if (!current) throw new NotFoundException('Product variant not found');
+        if (data.isDefault === false && current.isDefault) {
+          throw new BadRequestException(
+            'Set another variant as default before unsetting the current default',
+          );
+        }
+
+        if (data.isDefault === true && !current.isDefault) {
+          await transaction.productVariant.updateMany({
+            where: { productId: variant.productId, isDefault: true },
+            data: { isDefault: false },
+          });
+
+          return transaction.productVariant.update({
+            where: { id },
+            data,
+          });
+        }
 
         return transaction.productVariant.update({
           where: { id },
           data,
         });
-      });
-    }
-
-    return this.prisma.client.productVariant.update({
-      where: { id },
-      data,
-    });
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   async delete(id: string) {
     this.logger.log(`Deleting Product Variant ${id}`);
 
-    const variant = await this.getById(id);
-    const replacement = await this.prisma.client.productVariant.findFirst({
-      where: { productId: variant.productId, id: { not: id } },
-      orderBy: { createdAt: 'asc' },
+    const variant = await this.prisma.client.productVariant.findUnique({
+      where: { id },
     });
+    if (variant)
+      await this.prisma.client.$transaction(
+        async (transaction) => {
+          await lockImageProduct(transaction, variant.productId);
+          const current = await transaction.productVariant.findUnique({
+            where: { id },
+          });
+          if (!current) return;
+          const replacement = await transaction.productVariant.findFirst({
+            where: { productId: current.productId, id: { not: id } },
+            orderBy: { createdAt: 'asc' },
+          });
+          if (!replacement)
+            throw new ConflictException(
+              'Cannot delete the last product variant',
+            );
+          const images = await transaction.productImage.findMany({
+            where: { variantId: id },
+          });
+          await this.imageCleanup.enqueue(transaction, images);
+          await transaction.productVariant.delete({
+            where: { id },
+          });
 
-    if (!replacement) {
-      throw new ConflictException('Cannot delete the last product variant');
-    }
-
-    return this.prisma.client.$transaction(async (transaction) => {
-      const deletedVariant = await transaction.productVariant.delete({
-        where: { id },
-      });
-
-      if (variant.isDefault) {
-        await transaction.productVariant.update({
-          where: { id: replacement.id },
-          data: { isDefault: true },
-        });
-      }
-
-      return deletedVariant;
-    });
+          if (current.isDefault) {
+            await transaction.productVariant.update({
+              where: { id: replacement.id },
+              data: { isDefault: true },
+            });
+          }
+        },
+        { isolationLevel: 'ReadCommitted' },
+      );
+    await this.imageCleanup.drain({ variantId: id });
   }
 
   async getById(id: string) {

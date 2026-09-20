@@ -563,22 +563,6 @@ async function main() {
             },
           },
         },
-        images: {
-          create: [
-            {
-              url: `https://placehold.co/600x600?text=${p.slug}+1`,
-              alt: p.name,
-              sortOrder: 0,
-              isPrimary: true,
-            },
-            {
-              url: `https://placehold.co/600x600?text=${p.slug}+2`,
-              alt: p.name,
-              sortOrder: 1,
-              isPrimary: false,
-            },
-          ],
-        },
       },
       include: {
         variants: true,

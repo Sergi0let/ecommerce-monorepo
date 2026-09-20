@@ -59,6 +59,11 @@ export class ProductController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete product' })
   @ApiResponse({ status: 204, description: 'Delete product by id' })
+  @ApiResponse({
+    status: 503,
+    description:
+      'Product deleted; storage cleanup queued. Retry DELETE or run recovery',
+  })
   delete(@Param('id') id: string) {
     return this.productService.delete(id);
   }

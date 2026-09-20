@@ -9,11 +9,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductsQueryDto } from './dto/products-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ImageCleanupService } from '../product-images/image-cleanup.service';
+import { lockImageProduct } from '../product-images/image-storage.utils';
 
 @Injectable()
 export class ProductService {
   private readonly logger = new Logger(ProductService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly imageCleanup: ImageCleanupService,
+  ) {}
 
   async create(data: CreateProductDto) {
     this.logger.log(`Creating Product ${data.name} with slug ${data.slug}`);
@@ -73,11 +78,18 @@ export class ProductService {
 
   async delete(id: string) {
     this.logger.log(`Deleting Product ${id}`);
-    console.log('id ', id);
-
-    await this.getById(id);
-
-    return this.prisma.client.product.delete({ where: { id } });
+    await this.prisma.client.$transaction(
+      async (transaction) => {
+        if (!(await lockImageProduct(transaction, id)).length) return;
+        const images = await transaction.productImage.findMany({
+          where: { productId: id },
+        });
+        await this.imageCleanup.enqueue(transaction, images);
+        await transaction.product.delete({ where: { id } });
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+    await this.imageCleanup.drain({ productId: id });
   }
 
   async getAll(query: ProductsQueryDto) {
