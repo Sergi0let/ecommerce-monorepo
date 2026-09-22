@@ -69,6 +69,11 @@
       "types": "./src/users/index.ts",
       "import": "./dist/users/index.js",
       "default": "./dist/users/index.js"
+    },
+    "./reviews": {
+      "types": "./src/reviews/index.ts",
+      "import": "./dist/reviews/index.js",
+      "default": "./dist/reviews/index.js"
     }
   },
   "dependencies": {
