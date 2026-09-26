@@ -10,29 +10,32 @@ export class PrismaExeptionFilter implements ExceptionFilter {
 
     let message = 'Database error';
     let statusCode = 500;
+    let error = 'Internal Server Error';
 
     if (exception.code === 'P2002') {
       const target = exception.meta?.target;
 
       message =
         typeof target === 'string'
-          ? `Unique constraint failed on field: ${target}`
+          ? `Resource already exists for field: ${target}`
           : Array.isArray(target)
-            ? `Unique constraint failed on fields: ${target.join(', ')}`
-            : 'Unique constraint failed on unknown fields';
+            ? `Resource already exists for fields: ${target.join(', ')}`
+            : 'Resource already exists';
 
-      statusCode = 400;
+      statusCode = 409;
+      error = 'Conflict';
     }
 
     if (exception.code === 'P2003') {
       message = 'Operation failed due to related records';
       statusCode = 409;
+      error = 'Conflict';
     }
 
     response.status(statusCode).json({
       statusCode,
       message,
-      error: 'Bad Request',
+      error,
     });
   }
 }

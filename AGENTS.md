@@ -99,8 +99,9 @@ thumbnail/medium/large, зняти EXIF).
 
 ## Roadmap · `docs/api-plan.md`
 
-Пріоритет: Auth → User profile → Product images → Reviews → Cart/Orders →
-Inventory ops → Search → Promotions/Analytics.
+Пріоритет і незавершені задачі — у `docs/api-plan.md`; наступний конкретний
+етап — у `docs/_what-next.md`. Бізнес-користь та взаємодії завершених API-фіч —
+у `docs/_feature-api.md`.
 
 ## Карта `docs/`
 
@@ -112,9 +113,12 @@ Inventory ops → Search → Promotions/Analytics.
 | `product-pricing.md` | Ціна належить варіанту, активна ціна |
 | `warehouse-domain.md` | Warehouse/Inventory, доступний залишок |
 | `db-migration-flow.md` | Prisma migrate/generate/deploy |
+| `reviews-api.md` | Reviews API для storefront і admin integration |
+| `_feature-api.md` | Бізнес-користь та взаємодії реалізованих API-фіч |
+| `_future-ideas.md` | Майбутні інтеграції, автоматизації та продуктові ідеї |
 | `add-nestjs.md` | Додавання NestJS-app, типові помилки |
 | `add-prisma-to-packages.md` | Prisma як `@repo/database`, gotchas |
 | `commits.md` | Формат комітів і git-flow |
 | `infrastructure.md` | Деплой, upload pipeline, R2/Sharp |
-| `api-plan.md` | Пріоритети розвитку API, план Auth |
+| `api-plan.md` | Незавершені задачі розвитку API |
 | `codex-vscode.md` | Робота з Codex у VS Code |

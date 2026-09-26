@@ -42,6 +42,7 @@ model User {
   refreshSessions         RefreshSession[]
   passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+  reviews                 Review[]
 
   @@index([email])
   @@index([role])
@@ -375,11 +376,19 @@ model ProductAttributeValue {
   @@index([attributeValueId])
 }
 
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Review {
   id String @id @default(uuid())
 
   rating  Int
   comment String?
+
+  status ReviewStatus @default(PENDING)
 
   verifiedPurchase Boolean @default(false)
   helpfulCount     Int     @default(0)
@@ -387,9 +396,13 @@ model Review {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, productId])
   @@index([productId])
   @@index([rating])
   @@index([createdAt])

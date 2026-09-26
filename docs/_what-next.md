@@ -1,35 +1,41 @@
 # Де продовжуємо API
 
-Найближча робота — **Reviews**.
+Наступний етап — **операції резервування залишків**.
 Повний залишок roadmap — у [api-plan.md](./api-plan.md).
-Після завершення задачі видаляємо її звідси; історію виконаного не накопичуємо.
+Після завершення задачі видаляємо її звідси, а бізнес-користь і взаємодії
+фіксуємо в [журналі фіч](./_feature-api.md).
 
-## 1. Наступна задача — Reviews
+## 1. Inventory operations — атомарне резервування
 
-Перший крок — розширити `Review` у
-[schema.prisma](../packages/database/prisma/schema.prisma): автор, статус
-модерації та унікальність пари user/product. Спочатку перевірити, чи є дані
-для перенесення; наявність моделі не означає готовий Reviews API.
+Наявний `Inventory` CRUD дозволяє менеджеру напряму змінювати `quantity` і
+`reserved`. Перед кошиком і checkout потрібні окремі бізнес-операції, які
+захищають від продажу понад доступний залишок та конкурентних запитів.
 
-Далі contracts → `ReviewsModule` → власні create/update/delete →
-публічний paginated listing → moderation → узгоджений рейтинг продукту.
-Правила та тестові сценарії — у [roadmap](./api-plan.md#1-reviews--наступний-новий-модуль).
+Перший вертикальний зріз:
 
-Робочі файли для нового модуля:
+- визначити операції `reserve`, `release` і `consume`, їхні входи,
+  ідемпотентність та дозволені переходи;
+- атомарно перевіряти доступність `quantity - reserved` і змінювати залишок;
+- не дозволяти звичайному inventory update обходити активні резерви;
+- додати інтеграційні тести на нестачу залишку, повтор запиту та паралельне
+  резервування однієї позиції.
+
+Працювати з `variantId + warehouseId`: залишок і ціна належать варіанту.
+Деталі інваріантів — у [warehouse-domain.md](./warehouse-domain.md) та
+[product-pricing.md](./product-pricing.md). Повний перелік — у
+[roadmap, розділ Inventory operations](./api-plan.md#1-inventory-operations).
 
 ```text
-packages/database/prisma/schema.prisma   # Автор і статус відгуку
-packages/contracts/src/reviews/          # Схеми, inputs, views/responses, types
-apps/api/src/modules/reviews/            # Controller, service, module, DTO
-apps/api/test/reviews.e2e-spec.ts         # Права, модерація, рейтинг, гонки
+apps/api/src/modules/inventory/          # Бізнес-операції залишків
+packages/contracts/src/inventory/        # Inputs і response contracts за потреби
+apps/api/test/                            # Тести конкуренції й інваріантів
 ```
 
-Це заплановані нові директорії та тест, а не наявна реалізація.
+## 2. Далі за залежностями
 
-## 2. Наступна черга
-
-Cart → атомарне резервування залишків → Orders / checkout → Payments →
-Search / filters. Production-задачі виконати до публічного запуску за
+Після inventory operations: Cart → Orders / checkout → Payments → Search /
+filters. Cart не резервує залишки сам по собі; checkout має створити замовлення
+та резерв в узгодженому сценарії. Production-задачі виконати до запуску за
 [окремим розділом roadmap](./api-plan.md#5-перед-публічним-production-запуском).
 
 ## Перевірка змін
@@ -39,5 +45,5 @@ Search / filters. Production-задачі виконати до публічно
   релевантні e2e та `pnpm --filter api build`.
 - E2E виконувати з окремою `TEST_DATABASE_URL` за
   [інструкцією тестового середовища](../apps/api/test/test-register.md).
-- Для Reviews зі зміною Prisma schema —
+- Якщо етап вимагає зміни Prisma schema —
   [міграція та генерація клієнта](./db-migration-flow.md).
