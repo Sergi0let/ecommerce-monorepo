@@ -74,6 +74,11 @@
       "types": "./src/reviews/index.ts",
       "import": "./dist/reviews/index.js",
       "default": "./dist/reviews/index.js"
+    },
+    "./inventory-reservation": {
+      "types": "./src/inventory-reservation/index.ts",
+      "import": "./dist/inventory-reservation/index.js",
+      "default": "./dist/inventory-reservation/index.js"
     }
   },
   "dependencies": {
