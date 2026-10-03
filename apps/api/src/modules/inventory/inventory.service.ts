@@ -31,7 +31,6 @@ export class InventoryService {
           variantId: data.variantId,
           warehouseId: data.warehouseId,
           quantity: data.quantity,
-          reserved: data.reserved,
           incoming: data.incoming,
           location: data.location,
           batchNumber: data.batchNumber,
@@ -58,21 +57,15 @@ export class InventoryService {
       `Updating inventory ${id} with data ${JSON.stringify(data)}`,
     );
 
-    const inventory = await this.getById(id);
-    const quantity = data.quantity ?? inventory.quantity;
-    const reserved = data.reserved ?? inventory.reserved;
-
-    if (reserved > quantity) {
-      throw new BadRequestException(
-        'reserved must be less than or equal to quantity',
-      );
-    }
-
-    return this.prisma.client.inventory.update({
-      where: { id },
+    const result = await this.prisma.client.inventory.updateMany({
+      where: {
+        id,
+        ...(data.quantity !== undefined && {
+          reserved: { lte: data.quantity }, // WHERE "reserved" <= :newQuantity
+        }),
+      },
       data: {
         quantity: data.quantity,
-        reserved: data.reserved,
         incoming: data.incoming,
         location: data.location,
         batchNumber: data.batchNumber,
@@ -80,14 +73,48 @@ export class InventoryService {
         lastCountedAt: this.toDateOrUndefined(data.lastCountedAt),
       },
     });
+
+    if (result.count === 0) {
+      const inventory = await this.prisma.client.inventory.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+
+      if (!inventory) {
+        throw new NotFoundException(`Inventory with ID ${id} not found`);
+      }
+
+      throw new BadRequestException(
+        'quantity must be greater than or equal to reserved',
+      );
+    }
+
+    return this.getById(id);
   }
 
   async delete(id: string) {
     this.logger.log(`Deleting inventory ${id}`);
 
-    await this.getById(id);
+    const result = await this.prisma.client.inventory.deleteMany({
+      where: { id, reserved: 0 },
+    });
 
-    return this.prisma.client.inventory.delete({ where: { id } });
+    if (result.count === 1) {
+      return;
+    }
+
+    const inventory = await this.prisma.client.inventory.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!inventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+
+    throw new BadRequestException(
+      'Inventory with reserved stock cannot be deleted',
+    );
   }
 
   async getById(id: string) {
