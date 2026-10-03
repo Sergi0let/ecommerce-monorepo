@@ -22,7 +22,8 @@
 
 Працювати з `variantId + warehouseId`: залишок і ціна належать варіанту.
 Деталі інваріантів — у [warehouse-domain.md](./warehouse-domain.md) та
-[product-pricing.md](./product-pricing.md). Повний перелік — у
+[product-pricing.md](./product-pricing.md). Модель і життєвий цикл — у
+[inventory-reservations.md](./inventory-reservations.md). Повний перелік — у
 [roadmap, розділ Inventory operations](./api-plan.md#1-inventory-operations).
 
 ```text
@@ -30,6 +31,10 @@ apps/api/src/modules/inventory/          # Бізнес-операції зал�
 packages/contracts/src/inventory/        # Inputs і response contracts за потреби
 apps/api/test/                            # Тести конкуренції й інваріантів
 ```
+- feat(database): add inventory reservation model
+- feat(contracts): add inventory reservation contracts
+- feat(api): add atomic inventory reservation operations
+- docs(api): document inventory reservation lifecycle
 
 ## 2. Далі за залежностями
 

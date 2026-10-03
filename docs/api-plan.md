@@ -29,7 +29,8 @@
 без визначеної політики expiry та повторної обробки.
 
 Інваріанти: [warehouse domain](./warehouse-domain.md), ціна належить SKU:
-[product pricing](./product-pricing.md).
+[product pricing](./product-pricing.md). Модель і життєвий цикл резерву:
+[inventory reservations](./inventory-reservations.md).
 
 ## 2. Cart → Orders / checkout → Payments
 
