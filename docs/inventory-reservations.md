@@ -209,6 +209,25 @@ quantity = quantity - item.quantity
 Якщо активний резерв не завершили до `expiresAt`, cleanup-процес переводить
 його в `EXPIRED` і звільняє всі позиції так само, як `release`.
 
+#### Запуск cleanup у development
+
+Cleanup реалізований як one-shot job і не запускається таймером усередині API-процесу.
+Після збірки його можна виконати вручну:
+
+```bash
+pnpm --filter api build
+pnpm --filter api inventory-reservations:expire
+```
+
+Для development Cron запускає цю команду кожні 5 хвилин:
+
+```cron
+*/5 * * * * cd /path/to/market-cosmo && pnpm --filter api inventory-reservations:expire
+```
+
+За TTL 15 хвилин Cron може звільнити товар із затримкою до 5 хвилин після
+`expiresAt`. Перед production потрібно додати monitoring помилок і backlog.
+
 ## Атомарність
 
 Створення reservation, створення items і зміна `Inventory.reserved` мають
