@@ -304,8 +304,8 @@ model Inventory {
   variantId   String
   warehouseId String
 
-  quantity Int @default(0) // Доступний залишок
-  reserved Int @default(0) // Зарезервовано в кошиках
+  quantity Int @default(0) // Фізичний залишок
+  reserved Int @default(0) // Зарезервовано активними резервами
   incoming Int @default(0) // Очікується поставка
 
   location    String? // Місце на складі (стеллаж, ряд)
@@ -315,15 +315,54 @@ model Inventory {
   updatedAt     DateTime  @updatedAt
   lastCountedAt DateTime? // Дата останньої інвентаризації
 
-  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  products  Product[]
+  variant          ProductVariant             @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouse        Warehouse                  @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  products         Product[]
+  reservationItems InventoryReservationItem[]
 
   @@unique([variantId, warehouseId])
   @@index([variantId])
   @@index([warehouseId])
   @@index([expiresAt])
   @@index([quantity])
+}
+
+model InventoryReservation {
+  id             String                     @id @default(uuid())
+  status         InventoryReservationStatus @default(ACTIVE)
+  idempotencyKey String                     @unique
+  expiresAt      DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items InventoryReservationItem[]
+
+  @@index([status, expiresAt])
+}
+
+enum InventoryReservationStatus {
+  /// Резерв утримує товар: його quantity входить в Inventory.reserved.
+  ACTIVE
+  /// Резерв скасовано вручну: товар повернуто в доступний залишок.
+  RELEASED
+  /// Резерв завершено продажем: товар списано з Inventory.quantity і reserved.
+  CONSUMED
+  /// Час резерву минув: товар автоматично повернуто в доступний залишок.
+  EXPIRED
+}
+
+model InventoryReservationItem {
+  id            String               @id @default(uuid())
+  reservationId String
+  inventoryId   String
+  quantity      Int // Має бути більше нуля; enforce у contract/service та SQL migration
+  reservation   InventoryReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+
+  @@unique([reservationId, inventoryId])
+  @@index([inventoryId])
 }
 
 model Attribute {
@@ -397,7 +436,7 @@ model Review {
   updatedAt DateTime @updatedAt
 
   userId Int
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)

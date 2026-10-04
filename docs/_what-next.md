@@ -1,42 +1,66 @@
 # Де продовжуємо API
 
-Наступний етап — **операції резервування залишків**.
-Повний залишок roadmap — у [api-plan.md](./api-plan.md).
-Після завершення задачі видаляємо її звідси, а бізнес-користь і взаємодії
-фіксуємо в [журналі фіч](./_feature-api.md).
+Наступний етап — **Cart для авторизованого користувача**.
+Повний залишок roadmap — у [api-plan.md](./api-plan.md). Завершені Inventory
+Reservations зафіксовані в [журналі фіч](./_feature-api.md) і детально описані
+в [inventory-reservations.md](./inventory-reservations.md).
 
-## 1. Inventory operations — атомарне резервування
+## 1. Cart — перший вертикальний зріз
 
-Наявний `Inventory` CRUD дозволяє менеджеру напряму змінювати `quantity` і
-`reserved`. Перед кошиком і checkout потрібні окремі бізнес-операції, які
-захищають від продажу понад доступний залишок та конкурентних запитів.
+Cart зберігає намір покупця, але не резервує товар. Резерв створюватиметься
+пізніше під час checkout, тому покинутий кошик не блокує складські залишки.
 
-Перший вертикальний зріз:
+Мінімальний обсяг:
 
-- визначити операції `reserve`, `release` і `consume`, їхні входи,
-  ідемпотентність та дозволені переходи;
-- атомарно перевіряти доступність `quantity - reserved` і змінювати залишок;
-- не дозволяти звичайному inventory update обходити активні резерви;
-- додати інтеграційні тести на нестачу залишку, повтор запиту та паралельне
-  резервування однієї позиції.
+- моделі `Cart` і `CartItem` для авторизованого користувача;
+- один активний кошик на користувача;
+- позиція посилається на `ProductVariant`, а не на `Product`;
+- додавання позиції, встановлення кількості, видалення позиції та очищення
+  кошика;
+- одна позиція для кожного variant у межах кошика;
+- кількість — додатне ціле число з перевіркою в contracts і на рівні БД;
+- ціна береться сервером з активного `Price`; клієнт не передає authoritative
+  price, currency або totals;
+- відповідь кошика показує поточну ціну й доступність, але не гарантує їх до
+  checkout;
+- ownership: користувач бачить і змінює тільки власний кошик;
+- інтеграційні тести для ownership, повторного додавання variant, зміни
+  кількості, видалення, неактивної ціни та відсутнього SKU.
 
-Працювати з `variantId + warehouseId`: залишок і ціна належать варіанту.
-Деталі інваріантів — у [warehouse-domain.md](./warehouse-domain.md) та
-[product-pricing.md](./product-pricing.md). Повний перелік — у
-[roadmap, розділ Inventory operations](./api-plan.md#1-inventory-operations).
+Свідомо не входять у цей етап:
+
+- guest cart та merge після login;
+- резервування товару під час додавання в кошик;
+- snapshots ціни й назви — вони належатимуть OrderItem;
+- доставка, промокоди, checkout, Order і Payments.
 
 ```text
-apps/api/src/modules/inventory/          # Бізнес-операції залишків
-packages/contracts/src/inventory/        # Inputs і response contracts за потреби
-apps/api/test/                            # Тести конкуренції й інваріантів
+packages/database/prisma/schema.prisma       # Cart, CartItem
+packages/contracts/src/cart/                 # inputs, views, responses, types
+apps/api/src/modules/cart/                   # controller, service, dto, module
+apps/api/test/cart.e2e-spec.ts               # ownership і бізнес-інваріанти
 ```
 
-## 2. Далі за залежностями
+Рекомендовані тематичні коміти:
 
-Після inventory operations: Cart → Orders / checkout → Payments → Search /
-filters. Cart не резервує залишки сам по собі; checkout має створити замовлення
-та резерв в узгодженому сценарії. Production-задачі виконати до запуску за
-[окремим розділом roadmap](./api-plan.md#5-перед-публічним-production-запуском).
+```text
+feat(database): add cart models
+feat(contracts): add cart contracts
+feat(api): add authenticated cart operations
+docs(api): document cart behavior
+```
+
+## 2. Після Cart
+
+Наступна залежність — **Orders / checkout**. Checkout повторно перевіряє
+активну ціну та доступний залишок, створює order snapshots і атомарно викликає
+Inventory Reservation. Cart самостійно не викликає `reserve`.
+
+Після Orders додаються Payments. Успішний redirect платіжної сторінки не є
+підтвердженням оплати: остаточний перехід має спиратися на перевірений webhook.
+
+Production-задачі, включно з Cron для expiry резервів, виконати до запуску за
+[окремим розділом roadmap](./api-plan.md#4-перед-публічним-production-запуском).
 
 ## Перевірка змін
 
@@ -45,5 +69,5 @@ filters. Cart не резервує залишки сам по собі; checkou
   релевантні e2e та `pnpm --filter api build`.
 - E2E виконувати з окремою `TEST_DATABASE_URL` за
   [інструкцією тестового середовища](../apps/api/test/test-register.md).
-- Якщо етап вимагає зміни Prisma schema —
-  [міграція та генерація клієнта](./db-migration-flow.md).
+- Після зміни Prisma schema пройти
+  [migration workflow](./db-migration-flow.md).

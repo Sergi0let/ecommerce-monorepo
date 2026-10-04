@@ -50,6 +50,19 @@ const protectedRoutes = [
   { method: 'delete' as const, path: `/api/product-images/${fixtureId}` },
   { method: 'get' as const, path: `/api/inventory/id/${inventoryId}` },
   { method: 'get' as const, path: `/api/inventory/by-product/${variantId}` },
+  { method: 'post' as const, path: '/api/inventory-reservations' },
+  {
+    method: 'post' as const,
+    path: `/api/inventory-reservations/${fixtureId}/release`,
+  },
+  {
+    method: 'post' as const,
+    path: `/api/inventory-reservations/${fixtureId}/consume`,
+  },
+  {
+    method: 'get' as const,
+    path: `/api/inventory-reservations/${fixtureId}`,
+  },
   { method: 'get' as const, path: '/api/product-prices' },
   { method: 'get' as const, path: `/api/product-prices/id/${priceId}` },
   { method: 'get' as const, path: `/api/product-variants/id/${variantId}` },
@@ -451,6 +464,7 @@ describe('RBAC and catalog privacy integration', () => {
     for (const path of [
       '/api/product-prices',
       '/api/inventory/id/{id}',
+      '/api/inventory-reservations/{reservationId}',
       '/api/warehouse',
       '/api/users',
     ]) {

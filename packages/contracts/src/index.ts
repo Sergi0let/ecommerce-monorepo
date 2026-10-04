@@ -3,6 +3,7 @@ export * from './category/index.js';
 export * from './common/index.js';
 export * from './ingredient/index.js';
 export * from './inventory/index.js';
+export * from './inventory-reservation/index.js';
 export * from './product-images/index.js';
 export * from './product-price/index.js';
 export * from './product-variant/index.js';

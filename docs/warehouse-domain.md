@@ -55,3 +55,7 @@ model Inventory {
 
 `Warehouse.isDefault` визначає склад за замовчуванням. У PostgreSQL частковий
 unique index гарантує, що default-склад може бути лише один.
+
+Життєвий цикл конкретних резервів, їхні позиції та операції
+`reserve` / `release` / `consume` / `expire` описані в
+[inventory reservations](./inventory-reservations.md).

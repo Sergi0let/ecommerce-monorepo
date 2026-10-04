@@ -53,6 +53,8 @@
 7. **Reviews** — Prisma schema `9e05b54` (2026-09-21), contracts `b7f3bcd`
    (2026-09-22), moderation і public/admin API `677baf2` та conflict
    responses `c35d1ae` (2026-09-26).
+8. **Inventory Reservations** — database model `5ef9ec5`, contracts `00d0960`
+   та атомарні API operations `030eea1` (2026-10-03).
 
 Дати й subjects звірені з локальною історією Git. SHA — скорочені локальні
 ідентифікатори комітів. Вони описують історію цього clone і не гарантують, що
@@ -70,6 +72,7 @@ flowchart LR
   Admin --> RBAC
   RBAC --> Catalog
   RBAC --> Inventory[Inventory management]
+  RBAC --> Reservations[Inventory reservations]
   RBAC --> Images[Product images]
   RBAC --> Moderation[Review moderation]
   Catalog --> Product[Product]
@@ -87,7 +90,8 @@ flowchart LR
   Moderation --> Review
   Review -->|APPROVED| Rating[Product rating aggregates]
   Rating --> Product
-  Inventory -. prerequisite .-> Cart[Cart and checkout — planned]
+  Inventory --> Reservations
+  Cart[Cart and checkout — planned] -. checkout .-> Reservations
   Price --> Cart
 ~~~
 
@@ -101,8 +105,8 @@ flowchart LR
 - **Взаємодії:** Brand і Category групують Product; ProductVariant є SKU;
   Price та Inventory належать варіанту; Warehouse зберігає його залишки.
   Attributes й ingredients доповнюють каталог.
-- **Межі:** кошик і атомарне резервування ще не реалізовані; поточний Inventory
-  CRUD не є конкурентно-безпечним резервуванням.
+- **Межі:** кошик і checkout ще не реалізовані. Inventory Reservations поки не
+  пов’язані з користувачем, кошиком або замовленням.
 - **Деталі:** [варіанти](./product-variants.md), [ціни](./product-pricing.md),
   [склади](./warehouse-domain.md), [listing](./product-listing-guidelines.md).
 
@@ -117,7 +121,7 @@ flowchart LR
   використовує поштові сценарії з Mail module.
 - **Межі:** Facebook provider є в enum моделі, але його auth flow не належить до
   зафіксованих реалізованих provider-ів. Production hardening — у
-  [roadmap](./api-plan.md#5-перед-публічним-production-запуском).
+  [roadmap](./api-plan.md#4-перед-публічним-production-запуском).
 
 ## Зображення товарів
 
@@ -147,4 +151,23 @@ flowchart LR
 - **Межі:** verifiedPurchase поки не підтверджується замовленням і не може
   задаватися клієнтом. Серверна перевірка покупки запланована після Orders.
 - **Деталі:** [Reviews API для storefront і admin](./reviews-api.md),
-  [майбутній verified purchase](./api-plan.md#4-подальші-продуктові-задачі).
+  [майбутній verified purchase](./api-plan.md#3-подальші-продуктові-задачі).
+
+## Атомарне резервування залишків
+
+- **Бізнес-користь:** checkout може тимчасово утримати конкретний SKU на
+  конкретному складі без ризику продати більше одиниць, ніж фізично доступно.
+- **Можливості:** admin або manager може створити ідемпотентний резерв із
+  кількома позиціями, звільнити його або списати зарезервований товар. Статуси
+  `ACTIVE`, `RELEASED`, `CONSUMED` та `EXPIRED` фіксують життєвий цикл.
+  One-shot expiry job звільняє прострочені резерви batches по 100.
+- **Взаємодії:** кожна позиція посилається на конкретний `Inventory` для пари
+  `variantId + warehouseId`; доступність рахується як `quantity - reserved`.
+  Reserve, release, consume та expire блокують рядки й змінюють залишки в одній
+  транзакції PostgreSQL.
+- **Межі:** резерв ще не має зв’язку з User, Cart або Order. Cart не повинен
+  резервувати товар самостійно; інтеграція починається у майбутньому checkout.
+  Зовнішній Cron кожні 5 хвилин потрібно окремо налаштувати на сервері, а перед
+  production додати monitoring помилок, тривалості та backlog.
+- **Деталі:** [модель, переходи статусів і expiry job](./inventory-reservations.md),
+  [складські інваріанти](./warehouse-domain.md).
